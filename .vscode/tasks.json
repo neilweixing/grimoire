@@ -1,0 +1,29 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Grimoire: desktop dev",
+      "type": "process",
+      "command": "pnpm",
+      "args": ["desktop:dev"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "grimoire-desktop",
+        "pattern": {
+          "regexp": "^(.+):(\\d+):(\\d+): (.*)$",
+          "file": 1,
+          "line": 2,
+          "column": 3,
+          "message": 4
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "^\\[desktop-dev\\] Starting",
+          "endsPattern": "^\\[desktop-dev\\] Ready:"
+        }
+      },
+      "presentation": { "reveal": "always", "panel": "dedicated" }
+    }
+  ]
+}

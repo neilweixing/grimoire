@@ -1,0 +1,18 @@
+packages:
+  - apps/*
+  - packages/*
+
+minimumReleaseAgeExclude:
+  - "@earendil-works/pi-agent-core@1.6.1"
+  - "@earendil-works/pi-ai@1.6.1"
+  - "@earendil-works/pi-schema@1.6.1"
+  - "@earendil-works/pi-telemetry@1.6.1"
+
+allowBuilds:
+  electron: true
+  electron-winstaller: false
+  esbuild: true
+  protobufjs: false
+
+patchedDependencies:
+  "@assistant-ui/react-pi@0.0.35": patches/@assistant-ui__react-pi@0.0.35.patch

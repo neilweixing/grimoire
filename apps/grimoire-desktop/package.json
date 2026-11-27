@@ -1,0 +1,115 @@
+{
+  "name": "grimoire-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Grimoire — Spells written in code",
+  "author": "Grimoire",
+  "type": "module",
+  "main": "src/main.cjs",
+  "scripts": {
+    "build": "node --check src/main.cjs && node --check src/preload.cjs && node --check scripts/dev.mjs && node --check src/embedded-browser.cjs && node --check src/browser-preferences.cjs && node --check src/browser-tools.cjs && node --check scripts/icon.mjs && node --check scripts/stage.mjs && node --check scripts/smoke.mjs",
+    "start": "electron .",
+    "dist": "pnpm run stage && electron-builder --mac dmg --arm64 --publish never",
+    "pack": "pnpm run stage && electron-builder --mac --arm64 --dir --publish never",
+    "stage": "node scripts/stage.mjs",
+    "dev:desktop": "node scripts/dev.mjs",
+    "dist:msi": "pnpm run stage && electron-builder --win msi --x64 --publish never",
+    "pack:win": "pnpm run stage && electron-builder --win --x64 --dir --publish never",
+    "smoke": "node scripts/smoke.mjs"
+  },
+  "devDependencies": {
+    "@resvg/resvg-js": "2.6.2",
+    "electron": "45.5.0",
+    "electron-builder": "26.18.0"
+  },
+  "build": {
+    "appId": "io.grimoire.desktop",
+    "productName": "Grimoire",
+    "directories": {
+      "output": "../../release",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/main.cjs",
+      "src/preload.cjs",
+      "package.json",
+      "src/embedded-browser.cjs",
+      "src/browser-preferences.cjs",
+      "src/browser-tools.cjs"
+    ],
+    "extraResources": [
+      {
+        "from": "stage/agent",
+        "to": "agent",
+        "filter": [
+          "dist/**/*",
+          "package.json"
+        ]
+      },
+      {
+        "from": "stage/agent/node_modules",
+        "to": "agent/node_modules",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "stage/web",
+        "to": "web"
+      }
+    ],
+    "asar": true,
+    "npmRebuild": false,
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "category": "public.app-category.developer-tools",
+      "icon": "build/icon.icns",
+      "identity": null,
+      "hardenedRuntime": false
+    },
+    "dmg": {
+      "title": "Grimoire",
+      "sign": false,
+      "contents": [
+        {
+          "x": 150,
+          "y": 180,
+          "type": "file"
+        },
+        {
+          "x": 430,
+          "y": 180,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    },
+    "artifactName": "Grimoire-${version}-${arch}.${ext}",
+    "publish": [],
+    "win": {
+      "target": [
+        {
+          "target": "msi",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "msi": {
+      "oneClick": false,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "runAfterFinish": false
+    }
+  }
+}

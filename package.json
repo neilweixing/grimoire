@@ -1,0 +1,31 @@
+{
+  "name": "grimoire",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.23.0",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter './apps/*' dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "vitest run",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "check": "pnpm typecheck && pnpm test && pnpm build",
+    "desktop:build": "pnpm --filter grimoire-desktop run stage",
+    "desktop:start": "pnpm --filter grimoire-desktop start",
+    "desktop:dmg": "pnpm --filter grimoire-desktop dist",
+    "desktop:dev": "pnpm --filter grimoire-desktop run dev:desktop",
+    "desktop:msi": "pnpm --filter grimoire-desktop run dist:msi",
+    "desktop:smoke": "pnpm --filter grimoire-desktop run smoke"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.0",
+    "typescript": "^5.9.3",
+    "prettier": "^3.8.0",
+    "vitest": "^4.0.0"
+  }
+}

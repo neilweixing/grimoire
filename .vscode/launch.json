@@ -1,0 +1,58 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Grimoire: Electron main",
+      "type": "node",
+      "request": "attach",
+      "address": "127.0.0.1",
+      "port": 9229,
+      "restart": true,
+      "skipFiles": ["<node_internals>/**"],
+      "outFiles": ["${workspaceFolder}/apps/grimoire-desktop/src/**/*.cjs"],
+      "timeout": 30000
+    },
+    {
+      "name": "Grimoire: Pi service",
+      "type": "node",
+      "request": "attach",
+      "address": "127.0.0.1",
+      "port": 9230,
+      "restart": true,
+      "sourceMaps": true,
+      "skipFiles": ["<node_internals>/**", "**/node_modules/**"],
+      "outFiles": [
+        "${workspaceFolder}/apps/grimoire-agent/.desktop-dev/**/*.js"
+      ],
+      "resolveSourceMapLocations": [
+        "${workspaceFolder}/**",
+        "!**/node_modules/**"
+      ],
+      "timeout": 30000
+    },
+    {
+      "name": "Grimoire: React renderer",
+      "type": "pwa-chrome",
+      "request": "attach",
+      "address": "127.0.0.1",
+      "port": 9222,
+      "urlFilter": "http://127.0.0.1:*/*",
+      "webRoot": "${workspaceFolder}/apps/grimoire-web",
+      "sourceMaps": true,
+      "restart": true,
+      "timeout": 30000
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Grimoire: Desktop (all processes)",
+      "preLaunchTask": "Grimoire: desktop dev",
+      "configurations": [
+        "Grimoire: Electron main",
+        "Grimoire: Pi service",
+        "Grimoire: React renderer"
+      ],
+      "stopAll": true
+    }
+  ]
+}

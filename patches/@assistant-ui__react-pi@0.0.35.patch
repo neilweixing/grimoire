@@ -1,0 +1,107 @@
+diff --git a/dist/node/ThreadSupervisor.d.ts b/dist/node/ThreadSupervisor.d.ts
+index 82bf864a03cd982037c20e2429fed398371fa7ef..cf396c3920385380331a0f302801b2c80819d682 100644
+--- a/dist/node/ThreadSupervisor.d.ts
++++ b/dist/node/ThreadSupervisor.d.ts
+@@ -23,6 +23,7 @@ type PiCreateSessionOptions = NonNullable<Parameters<typeof createAgentSession>[
+ type PiSessionModel = PiCreateSessionOptions["model"];
+ type PiSessionOptions = Omit<PiCreateSessionOptions, "cwd" | "sessionManager" | "agentDir" | "model" | "modelRuntime">;
+ export interface PiThreadSupervisorOptions {
++    onNotification?: (threadId: string, message: string, type: string) => void;
+     /** Default workspace for `listThreads`/`createThread` when a call omits one.
+      * Defaults to `process.cwd()`. */
+     workspacePath?: string;
+@@ -85,6 +86,7 @@ export declare class PiThreadSupervisor {
+     }): Promise<PiThreadSnapshot>;
+     getThread(threadId: string): Promise<PiThreadSnapshot>;
+     sendMessage(threadId: string, input: PiSendMessageInput): Promise<void>;
++    reloadThread(threadId: string): Promise<void>;
+     cancelRun(threadId: string): Promise<void>;
+     /** Clear all queued messages, returning the cleared text. The session emits
+      * its own `queue_update`, which the event relay forwards to subscribers.
+diff --git a/dist/node/ThreadSupervisor.js b/dist/node/ThreadSupervisor.js
+index 53734fc69cc8b7d16e306e00895d6b9cc204bf6b..6ac219cdc9745137f8389a32072617924fc21c7b 100644
+--- a/dist/node/ThreadSupervisor.js
++++ b/dist/node/ThreadSupervisor.js
+@@ -44,6 +44,7 @@ var PiThreadSupervisor = class {
+ 	model;
+ 	hostModelRuntime;
+ 	configureSession;
++	onNotification;
+ 	/** Lazily-created Pi model/auth runtime backing the model catalog, picker, and
+ 	*  cold-snapshot context-window lookups. `ModelRuntime.create` is async (it
+ 	*  loads models.json and runs an availability refresh), so the promise is
+@@ -54,6 +55,7 @@ var PiThreadSupervisor = class {
+ 	catalogInfoByThreadId = /* @__PURE__ */ new Map();
+ 	generation = 0;
+ 	constructor(options = {}) {
++		this.onNotification = options.onNotification;
+ 		this.workspacePath = options.workspacePath ?? process.cwd();
+ 		this.agentDir = options.agentDir ? resolvePiPath(options.agentDir) : void 0;
+ 		this.model = options.model;
+@@ -110,6 +112,12 @@ var PiThreadSupervisor = class {
+ 			if (tokens.size === 0) this.startingSends.delete(threadId);
+ 		}
+ 	}
++	async reloadThread(threadId) {
++		const record = await this.ensureOpen(threadId);
++		if (!record.session.isIdle) throw new Error("Stop the running task before reloading integrations.");
++		await record.session.reload();
++		record.lastError = undefined;
++	}
+ 	async cancelRun(threadId) {
+ 		const tokens = this.startingSends.get(threadId);
+ 		if (tokens) for (const token of tokens) token.cancelled = true;
+@@ -308,6 +316,7 @@ var PiThreadSupervisor = class {
+ 			lastError: void 0
+ 		};
+ 		const uiBridge = createSupervisorUiBridge({
++			onNotify: (message, type) => this.onNotification?.(threadId, message, type),
+ 			nextRequestId: () => `${threadId}:ui:${++record.requestCounter}`,
+ 			currentToolCallId: () => {
+ 				const pending = session.state.pendingToolCalls;
+diff --git a/src/node/ThreadSupervisor.ts b/src/node/ThreadSupervisor.ts
+index 265c641ff2fced279123e9223ad38dbeab115ef7..b26ec88f4fb0da9b0db47725a59cfdffd901dbe9 100644
+--- a/src/node/ThreadSupervisor.ts
++++ b/src/node/ThreadSupervisor.ts
+@@ -81,6 +81,7 @@ type PendingOpen = {
+ };
+ 
+ export interface PiThreadSupervisorOptions {
++  onNotification?: (threadId: string, message: string, type: string) => void;
+   /** Default workspace for `listThreads`/`createThread` when a call omits one.
+    * Defaults to `process.cwd()`. */
+   workspacePath?: string;
+@@ -153,9 +154,11 @@ export class PiThreadSupervisor {
+   private readonly archivedSessionFiles = new Set<string>();
+   private readonly catalogCache = new Map<string, CatalogCacheEntry>();
+   private readonly catalogInfoByThreadId = new Map<string, PiSessionInfo>();
++  private readonly onNotification: PiThreadSupervisorOptions["onNotification"];
+   private generation = 0;
+ 
+   constructor(options: PiThreadSupervisorOptions = {}) {
++    this.onNotification = options.onNotification;
+     this.workspacePath = options.workspacePath ?? process.cwd();
+     this.agentDir = options.agentDir
+       ? resolvePiPath(options.agentDir)
+@@ -245,6 +248,13 @@ export class PiThreadSupervisor {
+     }
+   }
+ 
++  async reloadThread(threadId: string): Promise<void> {
++    const record = await this.ensureOpen(threadId);
++    if (!record.session.isIdle) throw new Error("Stop the running task before reloading integrations.");
++    await record.session.reload();
++    record.lastError = undefined;
++  }
++
+   async cancelRun(threadId: string): Promise<void> {
+     const tokens = this.startingSends.get(threadId);
+     if (tokens) for (const token of tokens) token.cancelled = true;
+@@ -525,6 +535,7 @@ export class PiThreadSupervisor {
+     };
+ 
+     const uiBridge = createSupervisorUiBridge({
++      onNotify: (message, type) => this.onNotification?.(threadId, message, type),
+       nextRequestId: () => `${threadId}:ui:${++record.requestCounter}`,
+       currentToolCallId: () => {
+         // Single-tool causality: only correlate when exactly one tool runs.

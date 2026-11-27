@@ -1,0 +1,108 @@
+name: Desktop installers
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Typecheck, tests and build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm format:check
+      - run: pnpm check
+
+  package:
+    name: ${{ matrix.name }}
+    needs: check
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS DMG (Apple Silicon)
+            os: macos-15
+            platform: mac
+            target: dmg
+            arch: arm64
+            extension: dmg
+            artifact: Grimoire-macOS-arm64
+          - name: Windows MSI (x64)
+            os: windows-2022
+            platform: win
+            target: msi
+            arch: x64
+            extension: msi
+            artifact: Grimoire-Windows-x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Stage platform dependencies and assets
+        run: pnpm desktop:build
+      - name: Build installer
+        run: pnpm --filter grimoire-desktop exec electron-builder --${{ matrix.platform }} ${{ matrix.target }} --${{ matrix.arch }} --publish never
+      - name: Install MSI for startup verification
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $msi = Get-ChildItem release/*.msi | Select-Object -First 1
+          $installDir = Join-Path $env:RUNNER_TEMP 'Grimoire-installed'
+          $log = Join-Path $env:RUNNER_TEMP 'Grimoire-msi.log'
+          $arguments = @('/i', "`"$($msi.FullName)`"", '/qn', '/norestart', "APPLICATIONFOLDER=`"$installDir`"", '/L*v', "`"$log`"")
+          $installer = Start-Process msiexec.exe -ArgumentList $arguments -Wait -PassThru
+          if ($installer.ExitCode -notin @(0, 3010)) {
+            Get-Content $log -Tail 100
+            throw "MSI installation failed: $($installer.ExitCode)"
+          }
+          $executable = Join-Path $installDir 'Grimoire.exe'
+          if (!(Test-Path $executable)) { throw "Installed application not found: $executable" }
+          "GRIMOIRE_SMOKE_APP_PATH=$executable" >> $env:GITHUB_ENV
+      - name: Verify packaged application startup
+        run: pnpm desktop:smoke
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: release/*.${{ matrix.extension }}
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload smoke diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}-smoke
+          path: |
+            release/smoke-*.json
+            release/smoke-*.json.png
+          if-no-files-found: ignore
+          retention-days: 7

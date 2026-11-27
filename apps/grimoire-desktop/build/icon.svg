@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80" width="1024" height="1024">
+  <rect x="1" y="1" width="78" height="78" rx="18" fill="#f5eee7"/><g transform="translate(8 8)"><title>Grimoire</title>
+  <defs>
+    <mask id="engraving" maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="64">
+      <path fill="#fff" d="M0 0h64v64H0z" />
+      <g fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round">
+        <path stroke-width="2.4" d="M20 19v17M20 41h22" />
+        <path stroke-width="2.8" d="m30 23-5 5 5 5m7-10 5 5-5 5" />
+      </g>
+    </mask>
+  </defs>
+  <g fill="#a65f43">
+    <path mask="url(#engraving)" d="M21 12h14a13 13 0 0 0 13 14v23H21a9 9 0 0 1-9-9V21a9 9 0 0 1 9-9Zm0 34h23v-4H21a5 5 0 0 0 0 10h27v-3H21a1.5 1.5 0 0 1 0-3Z" />
+    <path d="m48 5 2.8 7.2L58 15l-7.2 2.8L48 25l-2.8-7.2L38 15l7.2-2.8Z" />
+  </g>
+</g></svg>
