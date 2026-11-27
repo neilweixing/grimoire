@@ -39,6 +39,8 @@ run([
   "deploy",
   "--legacy",
   "--prod",
+  // MSI packages require real directories instead of pnpm directory junctions.
+  "--node-linker=hoisted",
   join(stage, "agent"),
 ]);
 cpSync(join(root, "apps/grimoire-web/dist"), join(stage, "web"), {
