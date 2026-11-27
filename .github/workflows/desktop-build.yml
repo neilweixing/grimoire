@@ -75,7 +75,7 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: pnpm --filter grimoire-desktop exec electron-builder --${{ matrix.platform }} ${{ matrix.target }} --${{ matrix.arch }} --publish never
+        run: pnpm --filter grimoire-desktop exec node scripts/build-installer.mjs --${{ matrix.platform }} ${{ matrix.target }} --${{ matrix.arch }} --publish never
       - name: Verify update manifests and payloads
         run: pnpm --filter grimoire-desktop run verify:updates
       - name: Verify independent browser sessions
