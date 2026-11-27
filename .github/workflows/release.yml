@@ -6,7 +6,7 @@ on:
       release_tag:
         description: Version tag matching the desktop package version
         required: true
-        default: v0.1.0
+        default: v0.1.1
         type: string
       build_run_id:
         description: Successful Desktop installers workflow run ID
@@ -103,11 +103,13 @@ jobs:
           from pathlib import Path
           version = os.environ['RELEASE_TAG'][1:]
           assets = Path('release-assets')
-          names = [f'Grimoire-{version}-arm64.dmg', f'Grimoire-{version}-x64.msi']
+          names = [f'Grimoire-{version}-arm64.dmg', f'Grimoire-{version}-arm64.zip', f'Grimoire-{version}-x64.msi', f'Grimoire-{version}-x64-setup.exe', 'latest-mac.yml', 'latest.yml']
           checksums = []
           for name in names:
+              assert (assets / name).is_file(), f'Missing release asset: {name}'
+          for name in sorted(path.name for path in assets.iterdir() if path.is_file()):
               path = assets / name
-              assert path.is_file() and path.stat().st_size > 1024 * 1024, f'Missing installer: {name}'
+              assert path.is_file() and path.stat().st_size > 0, f'Missing installer: {name}'
               checksums.append(f'{hashlib.sha256(path.read_bytes()).hexdigest()}  {name}\n')
           (assets / 'SHA256SUMS.txt').write_text(''.join(checksums))
           notes = f'''Desktop coding agent powered by the native Pi SDK and assistant-ui.
@@ -115,7 +117,7 @@ jobs:
           ## Downloads
 
           - macOS Apple Silicon: `Grimoire-{version}-arm64.dmg`
-          - Windows x64: `Grimoire-{version}-x64.msi`
+          - Windows x64: `Grimoire-{version}-x64-setup.exe` (in-app updates) or `Grimoire-{version}-x64.msi` (manual updates)
           - `SHA256SUMS.txt`: SHA-256 checksums for both installers.
 
           Application data, provider credentials, and local project folders are not included.
@@ -123,7 +125,9 @@ jobs:
           ## Current limitations
 
           - Installers are unsigned; the operating system may display publisher or trust warnings.
-          - In-app automatic updates are not available yet. Install a new version manually to update.
+          - The app checks for releases in the background. Downloading requires clicking Update. After downloading, choose Quit and update or Later; supported installations apply the update on the next normal quit.
+          - macOS in-app installation requires a signed build. Unsigned macOS builds and MSI installations download updates for manual installation.
+          - ZIP, blockmap, and latest*.yml assets support the update client.
           - Windows shell execution requires explicitly confirmed Full access; a native Windows sandbox is not enabled.
 
           Both installers passed startup checks, including an actual MSI installation on Windows.
@@ -135,12 +139,13 @@ jobs:
           PY
       - name: Publish release with installers
         run: |
-          version="${RELEASE_TAG#v}"
-          gh release create "$RELEASE_TAG" \
-            "release-assets/Grimoire-$version-arm64.dmg" \
-            "release-assets/Grimoire-$version-x64.msi" \
-            release-assets/SHA256SUMS.txt \
-            --repo "$GH_REPO" --verify-tag \
-            --title "Grimoire $RELEASE_TAG" \
-            --notes-file "$RUNNER_TEMP/release-notes.md" --draft
-          gh release edit "$RELEASE_TAG" --repo "$GH_REPO" --draft=false --latest
+          if gh release view "$RELEASE_TAG" --repo "$GH_REPO" --json isDraft > "$RUNNER_TEMP/existing-release.json" 2>/dev/null; then
+            jq -e '.isDraft == true' "$RUNNER_TEMP/existing-release.json" > /dev/null || { echo 'This version is already published; use a new version tag.' >&2; exit 1; }
+            gh release upload "$RELEASE_TAG" release-assets/* --repo "$GH_REPO" --clobber
+          else
+            gh release create "$RELEASE_TAG" release-assets/* \
+              --repo "$GH_REPO" --verify-tag \
+              --title "Grimoire $RELEASE_TAG" \
+              --notes-file "$RUNNER_TEMP/release-notes.md" --draft
+          fi
+          gh release edit "$RELEASE_TAG" --repo "$GH_REPO" --notes-file "$RUNNER_TEMP/release-notes.md" --draft=false --latest

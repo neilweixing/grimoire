@@ -17,7 +17,7 @@ if (!existsSync(executable))
 mkdirSync(release, { recursive: true });
 const report = resolve(
   release,
-  `smoke-${process.platform}-${process.arch}.json`,
+  `smoke-${process.platform}-${process.arch}${process.env.GRIMOIRE_SMOKE_VARIANT === "nsis" ? "-nsis" : ""}.json`,
 );
 const data = mkdtempSync(join(tmpdir(), "grimoire-smoke-"));
 const child = spawn(executable, [], {
@@ -36,6 +36,17 @@ const code = await new Promise((done, fail) => {
 assert.equal(code, 0, "Desktop app failed its startup smoke test");
 const result = JSON.parse(readFileSync(report, "utf8"));
 assert.equal(result.packaged, true);
+const { version } = JSON.parse(
+  readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+);
+assert.equal(result.updates.currentVersion, version);
+assert.equal(result.updates.phase, "idle");
+if (process.env.GRIMOIRE_EXPECT_UPDATE_CAPABILITY)
+  assert.equal(
+    result.updates.capability,
+    process.env.GRIMOIRE_EXPECT_UPDATE_CAPABILITY,
+  );
+if (process.platform === "win32") assert.equal(result.applicationMenu, false);
 assert.equal(result.health.status, "ok");
 assert.equal(result.chat.metadata.status, "idle");
 assert.equal(result.sandbox.exitCode, 0);

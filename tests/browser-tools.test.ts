@@ -74,7 +74,7 @@ it.each(["read-only", "workspace", "full"] as const)(
   },
 );
 
-it("refuses browser requests from inactive chats, other projects, and cancelled calls", async () => {
+it("refuses browser requests outside the bound session, other projects, and cancelled calls", async () => {
   const navigate = vi.fn().mockReturnValue({ url: "https://example.com/" });
   const controller = createBrowserAutomation({
     getView: () => undefined,
@@ -90,10 +90,10 @@ it("refuses browser requests from inactive chats, other projects, and cancelled 
   };
   await expect(
     controller.execute({ ...request, threadId: "other" }),
-  ).rejects.toThrow("active project and chat");
+  ).rejects.toThrow("bound project and session");
   await expect(
     controller.execute({ ...request, workspace: "/other" }),
-  ).rejects.toThrow("active project and chat");
+  ).rejects.toThrow("bound project and session");
   await expect(
     controller.execute(request, AbortSignal.abort()),
   ).rejects.toThrow();

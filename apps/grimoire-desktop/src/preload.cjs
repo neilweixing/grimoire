@@ -1,6 +1,15 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("grimoireDesktop", {
+  updates: {
+    command: (command) =>
+      ipcRenderer.invoke("grimoire:update-command", command),
+    onState: (listener) => {
+      const handler = (_event, state) => listener(state);
+      ipcRenderer.on("grimoire:update-state", handler);
+      return () => ipcRenderer.removeListener("grimoire:update-state", handler);
+    },
+  },
   browser: {
     command: (command) =>
       ipcRenderer.invoke("grimoire:browser-command", command),

@@ -145,6 +145,7 @@ export class WorkspaceRegistry {
           "metrics",
           "titles",
           "imports",
+          "shell",
           "audit.jsonl",
           "permissions.json",
         ])

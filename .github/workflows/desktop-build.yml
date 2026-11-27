@@ -42,21 +42,19 @@ jobs:
           - name: macOS DMG (Apple Silicon)
             os: macos-15
             platform: mac
-            target: dmg
+            target: dmg zip
             arch: arm64
             extension: dmg
             artifact: Grimoire-macOS-arm64
           - name: Windows MSI (x64)
             os: windows-2022
             platform: win
-            target: msi
+            target: msi nsis
             arch: x64
             extension: msi
             artifact: Grimoire-Windows-x64
     runs-on: ${{ matrix.os }}
     timeout-minutes: 35
-    env:
-      CSC_IDENTITY_AUTO_DISCOVERY: "false"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -70,7 +68,18 @@ jobs:
       - name: Stage platform dependencies and assets
         run: pnpm desktop:build
       - name: Build installer
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ runner.os == 'macOS' && secrets.MAC_CSC_LINK != '' && 'true' || 'false' }}
+          CSC_LINK: ${{ runner.os == 'macOS' && secrets.MAC_CSC_LINK || secrets.WINDOWS_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ runner.os == 'macOS' && secrets.MAC_CSC_KEY_PASSWORD || secrets.WINDOWS_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: pnpm --filter grimoire-desktop exec electron-builder --${{ matrix.platform }} ${{ matrix.target }} --${{ matrix.arch }} --publish never
+      - name: Verify update manifests and payloads
+        run: pnpm --filter grimoire-desktop run verify:updates
+      - name: Verify independent browser sessions
+        run: pnpm --filter grimoire-desktop run browser:smoke
       - name: Install MSI for startup verification
         if: runner.os == 'Windows'
         shell: pwsh
@@ -89,11 +98,33 @@ jobs:
           "GRIMOIRE_SMOKE_APP_PATH=$executable" >> $env:GITHUB_ENV
       - name: Verify packaged application startup
         run: pnpm desktop:smoke
+      - name: Install and verify NSIS updater support
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $msi = Get-ChildItem release/*.msi | Select-Object -First 1
+          $remove = Start-Process msiexec.exe -ArgumentList @('/x', "`"$($msi.FullName)`"", '/qn', '/norestart') -Wait -PassThru
+          if ($remove.ExitCode -notin @(0, 3010)) { throw "MSI removal failed: $($remove.ExitCode)" }
+          $installer = Get-ChildItem release/*-setup.exe | Select-Object -First 1
+          $installDir = Join-Path $env:RUNNER_TEMP 'Grimoire-nsis'
+          $setup = Start-Process $installer.FullName -ArgumentList "/S /D=$installDir" -Wait -PassThru
+          if ($setup.ExitCode -ne 0) { throw "NSIS installation failed: $($setup.ExitCode)" }
+          if (!(Test-Path "$installDir/resources/nsis-install")) { throw 'NSIS installation marker missing' }
+          $env:GRIMOIRE_SMOKE_APP_PATH = Join-Path $installDir 'Grimoire.exe'
+          $env:GRIMOIRE_SMOKE_VARIANT = 'nsis'
+          $env:GRIMOIRE_EXPECT_UPDATE_CAPABILITY = 'automatic'
+          pnpm desktop:smoke
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: release/*.${{ matrix.extension }}
+          path: |
+            release/*.dmg
+            release/*.zip
+            release/*.msi
+            release/*-setup.exe
+            release/*.blockmap
+            release/latest*.yml
           if-no-files-found: error
           retention-days: 14
       - name: Upload smoke diagnostics

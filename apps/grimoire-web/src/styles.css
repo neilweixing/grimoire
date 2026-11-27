@@ -133,6 +133,139 @@ button:not(:disabled):hover {
 .sidebar-rail .rail-settings {
   margin-top: auto;
 }
+.rail-footer {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.sidebar-update-button,
+.rail-footer .icon-button {
+  position: relative;
+}
+.settings-footer {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+.settings-footer .settings-button {
+  flex: 1;
+  min-width: 0;
+}
+.sidebar-update-button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 7px;
+  height: 26px;
+  background: transparent;
+  color: var(--muted);
+  border-radius: 7px;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.sidebar-update-button:hover {
+  background: var(--accent-soft);
+}
+.sidebar-update-button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.update-available {
+  color: #fff;
+  background: #8f4b34;
+  box-shadow: 0 1px 4px #8f4b341a;
+}
+.sidebar-update-button svg {
+  width: 14px;
+  height: 14px;
+}
+.sidebar-update-button.update-available:hover,
+.rail-footer .update-available:hover {
+  background: #783f2d;
+}
+.sidebar-update-button.update-available:disabled {
+  opacity: 0.8;
+}
+.update-dot {
+  position: absolute;
+  width: 5px;
+  height: 5px;
+  right: 2px;
+  top: 4px;
+  border-radius: 50%;
+  background: #fff;
+}
+.update-settings {
+  margin-top: 18px;
+}
+.update-control {
+  position: relative;
+  flex-shrink: 0;
+}
+.update-release-popover {
+  position: fixed;
+  z-index: 90;
+  bottom: calc(100% + 8px);
+  left: 0;
+  width: min(340px, calc(100vw - 40px));
+  padding: 15px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 10px 32px #40383020;
+  text-align: left;
+}
+.update-release-popover::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 0;
+  width: 100%;
+  height: 9px;
+}
+.update-release-popover strong {
+  font-size: 13px;
+  color: var(--ink);
+}
+.update-release-notes {
+  margin: 10px 0;
+  max-height: 230px;
+  overflow-y: auto;
+  font-size: 12px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.update-status {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--muted);
+  margin: 10px 0;
+}
+.update-error {
+  color: #a25039;
+}
+.update-settings progress {
+  width: 100%;
+  height: 6px;
+  accent-color: var(--accent);
+}
+.settings-version {
+  margin-top: 28px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 13px;
+}
+.update-dialog-icon {
+  display: inline-flex;
+  padding: 10px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 12px;
+}
 .desktop-sidebar-toggle {
   display: none;
 }
@@ -329,10 +462,6 @@ html[data-desktop="macos"] select {
   margin: 3px 0;
   color: #937f6c;
 }
-.chat-item.selected {
-  background: var(--accent-soft);
-  color: #574b40;
-}
 .chat-select {
   display: flex;
   align-items: center;
@@ -343,6 +472,10 @@ html[data-desktop="macos"] select {
   background: transparent;
   text-align: left;
   font-size: 12px;
+}
+.chat-item.selected {
+  background: var(--accent-soft);
+  color: #574b40;
 }
 .chat-select svg {
   flex-shrink: 0;
@@ -1721,18 +1854,12 @@ details[open] > summary > .activity-chevron {
   min-width: 0;
   border-radius: 7px;
 }
-.project-row.selected {
-  background: var(--accent-soft);
-}
 .project-row .project-item {
   flex: 1;
   width: auto;
   min-width: 0;
   gap: 7px;
   padding-right: 3px;
-}
-.project-row .project-item.selected {
-  background: transparent;
 }
 .project-row .project-item > span:first-of-type {
   min-width: 0;
@@ -1940,8 +2067,8 @@ details[open] > summary > .activity-chevron {
 }
 .project-thread-list {
   list-style: none;
-  margin: 2px 0 5px 32px;
-  padding: 2px 0 2px 8px;
+  margin: 2px 0 5px;
+  padding: 2px 0;
 }
 .project-thread {
   display: flex;
@@ -1990,10 +2117,6 @@ details[open] > summary > .activity-chevron {
 }
 .project-item:hover {
   background: #ebe4db;
-}
-.project-item.selected {
-  background: var(--accent-soft);
-  color: var(--ink);
 }
 .project-item > span:first-of-type {
   overflow: hidden;

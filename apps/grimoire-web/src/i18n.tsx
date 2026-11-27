@@ -8,6 +8,32 @@ import {
 import { readStoredValue, storageKeys } from "./storage";
 
 const en = {
+  viewUpdateNotes: "View full release notes",
+  updateNotesEmpty: "No release notes provided.",
+  updates: "Updates",
+  currentVersion: "Version {version}",
+  checkUpdates: "Check for updates",
+  downloadUpdate: "Download update",
+  updateChecking: "Checking for updates…",
+  updateVersionAvailable: "Version {version} is available",
+  updateDownloading: "Downloading… {percent}%",
+  updateCurrent: "You're up to date",
+  updateReady: "Update downloaded",
+  updateDownloadedTitle: "Version {version} is ready",
+  updateOnQuitMessage:
+    "The update will be installed the next time you close Grimoire. Choose Later to keep working, or Quit and update to install now. Running tasks will stop when the app closes.",
+  updateManualMessage:
+    "The update is downloaded. This installation requires a manual update; open the installer to finish.",
+  updateLater: "Later",
+  quitAndUpdate: "Quit and update",
+  openUpdateInstaller: "Open installer",
+  updateFailed: "Update failed. Please try again.",
+  updateNotPublished: "No update packages have been published yet.",
+  updatesDevelopment: "Updates are available in the installed app.",
+  updateMacUnsigned:
+    "This macOS build is unsigned. Updates can be downloaded, but must be installed manually.",
+  updateMsiManual:
+    "MSI installations require a manual update. Install the EXE version to enable in-app installation.",
   commonCategory: "General",
   securityCategory: "Security",
   selectOption: "Select an option",
@@ -303,6 +329,31 @@ const en = {
 
 type TranslationKey = keyof typeof en;
 const zh: Record<TranslationKey, string> = {
+  viewUpdateNotes: "查看完整更新说明",
+  updateNotesEmpty: "此版本暂无更新说明。",
+  updates: "更新",
+  currentVersion: "当前版本 {version}",
+  checkUpdates: "检查更新",
+  downloadUpdate: "下载更新",
+  updateChecking: "正在检查更新…",
+  updateVersionAvailable: "发现新版本 {version}",
+  updateDownloading: "正在下载… {percent}%",
+  updateCurrent: "已是最新版本",
+  updateReady: "更新已下载",
+  updateDownloadedTitle: "版本 {version} 已下载",
+  updateOnQuitMessage:
+    "更新将在下次关闭 Grimoire 后安装，重新启动即可使用新版本。选择“稍后”可继续使用；点击“关闭并更新”会停止正在运行的任务并立即安装。",
+  updateManualMessage:
+    "更新已下载。当前安装方式需要手动更新，请打开安装包完成安装。",
+  updateLater: "稍后",
+  quitAndUpdate: "关闭并更新",
+  openUpdateInstaller: "打开安装包",
+  updateFailed: "更新失败，请重试。",
+  updateNotPublished: "暂未发布可用的更新包。",
+  updatesDevelopment: "请在安装后的应用中使用更新功能。",
+  updateMacUnsigned: "当前 macOS 版本未签名，可以下载更新，但需要手动安装。",
+  updateMsiManual:
+    "MSI 安装版需要手动更新，改用 EXE 安装版可启用应用内安装更新。",
   commonCategory: "常规",
   securityCategory: "安全",
   selectOption: "选择一项",

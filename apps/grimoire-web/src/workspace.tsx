@@ -279,9 +279,6 @@ export function WorkspacePicker({
                     <Folder size={15} />
                   )}
                   <span>{workspace.name}</span>
-                  {workspace.id === current.id && (
-                    <span className="project-active-dot" />
-                  )}
                 </button>
                 <ProjectActions
                   workspace={workspace}

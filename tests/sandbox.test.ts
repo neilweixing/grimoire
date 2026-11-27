@@ -5,6 +5,8 @@ import {
   linkSync,
   rmSync,
   readFileSync,
+  existsSync,
+  realpathSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -19,6 +21,55 @@ beforeEach(() => {
   executor = new NativeSandboxExecutor(join(directory, "workspace"));
 });
 afterEach(() => rmSync(directory, { recursive: true, force: true }));
+it.each([false, true])(
+  "keeps command caches and temporary files outside the project (full access: %s)",
+  async (unrestricted) => {
+    const runtime = join(directory, "shell-runtime");
+    const shell = new NativeSandboxExecutor(
+      executor.root,
+      unrestricted,
+      undefined,
+      runtime,
+    );
+    if (!shell.shellAvailable()) return;
+    let output = "";
+    const result = await shell.exec(
+      [
+        "set -e",
+        'mkdir -p "$HOME/Library/Caches"',
+        'printf cached > "$HOME/Library/Caches/marker"',
+        'printf temporary > "$TMPDIR/marker"',
+        'printf xdg > "$XDG_CACHE_HOME/marker"',
+        'printf "%s\\n" "$HOME" "$TMPDIR" "$PWD"',
+      ].join("; "),
+      shell.root,
+      {
+        onData: (chunk) => {
+          output += chunk.toString();
+        },
+      },
+    );
+    expect(result.exitCode).toBe(0);
+    const [home, temporary, cwd] = output.trim().split("\n");
+    expect(home).toBe(join(realpathSync(runtime), "home"));
+    expect(temporary).toBe(join(realpathSync(runtime), "tmp"));
+    expect(cwd).toBe(shell.root);
+    expect(readFileSync(join(home!, "Library/Caches/marker"), "utf8")).toBe(
+      "cached",
+    );
+    expect(readFileSync(join(temporary!, "marker"), "utf8")).toBe("temporary");
+    expect(existsSync(join(shell.root, "Library"))).toBe(false);
+    expect(existsSync(join(shell.root, ".cache"))).toBe(false);
+    expect(existsSync(join(shell.root, "marker"))).toBe(false);
+    output = "";
+    await shell.exec('cat "$HOME/Library/Caches/marker"', shell.root, {
+      onData: (chunk) => {
+        output += chunk.toString();
+      },
+    });
+    expect(output).toBe("cached");
+  },
+);
 it("blocks traversal, protected files, symbolic links, and hard links", async () => {
   writeFileSync(join(directory, "outside.txt"), "private");
   symlinkSync(

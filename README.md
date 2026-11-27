@@ -21,9 +21,9 @@ Open [http://127.0.0.1:5173](http://127.0.0.1:5173). The Agent API binds to `127
 
 ## Desktop downloads and CI
 
-[Desktop installers](https://github.com/neilweixing/grimoire/actions/workflows/desktop-build.yml) builds an Apple Silicon DMG on macOS and a Windows x64 MSI on Windows. Runs start on pushes to `main`, pull requests, `v*` tags, or manual dispatch. After a successful run, download `Grimoire-macOS-arm64` or `Grimoire-Windows-x64` from **Artifacts**. Installers are unsigned; no signing credentials are included in the repository.
+[Desktop installers](https://github.com/neilweixing/grimoire/actions/workflows/desktop-build.yml) builds Apple Silicon DMG/ZIP packages on macOS and Windows x64 MSI/NSIS EXE packages on Windows. Runs start on pushes to `main`, pull requests, `v*` tags, or manual dispatch. After a successful run, download `Grimoire-macOS-arm64` or `Grimoire-Windows-x64` from **Artifacts**. Installers are unsigned; no signing credentials are included in the repository.
 
-Stable version tags such as `v0.1.0` automatically publish both verified installers and `SHA256SUMS.txt` to [GitHub Releases](https://github.com/neilweixing/grimoire/releases). The tag must match the version in `apps/grimoire-desktop/package.json`. To publish installers from an existing successful build without rebuilding or downloading them locally, create the version tag at that build's commit, then run [Publish release](https://github.com/neilweixing/grimoire/actions/workflows/release.yml) with the tag and the **Desktop installers** run ID. The workflow verifies that the tag points to the exact build commit. GitHub Actions transfers the artifacts and creates the release using its built-in `GITHUB_TOKEN`; no personal token is stored in the repository.
+Stable version tags such as `v0.1.1` automatically publish verified installers, update payloads, manifests, blockmaps, and `SHA256SUMS.txt` to [GitHub Releases](https://github.com/neilweixing/grimoire/releases). The tag must match the version in `apps/grimoire-desktop/package.json`. To publish installers from an existing successful build without rebuilding or downloading them locally, create the version tag at that build's commit, then run [Publish release](https://github.com/neilweixing/grimoire/actions/workflows/release.yml) with the tag and the **Desktop installers** run ID. The workflow verifies that the tag points to the exact build commit. GitHub Actions transfers the artifacts and creates the release using its built-in `GITHUB_TOKEN`; no personal token is stored in the repository.
 
 The workflow verifies types, tests and builds before packaging. Each platform stages its own dependencies, generates native icons from the SVG logo, and runs the packaged app against isolated test data. The Windows job additionally installs the MSI before testing the installed executable. Local data, provider credentials, projects and chat history are excluded from both installers.
 
@@ -36,6 +36,16 @@ pnpm desktop:msi
 
 Windows uses Pi's native PowerShell tool. The current sandbox runtime supports macOS/Linux, so Windows read-only and workspace modes keep shell execution disabled; explicitly confirmed full access runs PowerShell with the current user's permissions. File tools, providers, MCP, Skills, plugins and the embedded browser remain available. The desktop runtime includes its own Node.js; separately configured MCP servers can still require executables such as Node.js or Python.
 
+## Desktop updates
+
+The app uses `electron-updater` with the public GitHub Releases feed. It checks once after startup and every six hours without downloading or installing anything. A compact terracotta **Update** button appears beside **Settings** only when an update is available. Hover or focus shows the release description. Clicking the button downloads the update and shows progress; the completed download opens a confirmation dialog. Choosing **Later** keeps the app running and defers installation to the next normal quit, so the next launch uses the updated version. **Quit and update** stops running tasks and installs immediately.
+
+In-app installation is enabled for signed macOS apps and Windows NSIS EXE installations. Unsigned macOS apps and MSI installations can check and download updates but require opening the downloaded installer manually. macOS uses a ZIP update payload; Windows uses the NSIS EXE. The current version is displayed at the bottom of General settings. Web and development builds do not install desktop updates.
+
+The build workflow validates the update manifests, payload sizes, and SHA-512 checksums before publishing. Installer metadata and personal tokens are not supplied by the renderer. Update IPC accepts requests only from the main app frame; embedded websites cannot invoke it. Browser certificate preferences do not weaken update HTTPS verification.
+
+Optional signing secrets for GitHub Actions are `MAC_CSC_LINK` / `MAC_CSC_KEY_PASSWORD` and `WINDOWS_CSC_LINK` / `WINDOWS_CSC_KEY_PASSWORD`. macOS notarization can additionally use `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, and `APPLE_TEAM_ID`. Without signing credentials, macOS remains in manual-install mode. Existing installations without the update feature must install this version manually first.
+
 ## macOS desktop (Apple Silicon)
 
 Build the local, unsigned DMG on an Apple Silicon Mac:
@@ -45,7 +55,7 @@ pnpm install
 pnpm desktop:dmg
 ```
 
-The installer is `release/Grimoire-0.1.0-arm64.dmg`. Open it and drag Grimoire into Applications. This local build is not signed with an Apple Developer ID or notarized. macOS may require opening it through the Finder context menu or allowing it in System Settings → Privacy & Security.
+The installer is `release/Grimoire-0.1.1-arm64.dmg`. Open it and drag Grimoire into Applications. This local build is not signed with an Apple Developer ID or notarized. macOS may require opening it through the Finder context menu or allowing it in System Settings → Privacy & Security.
 
 For desktop development, run `pnpm desktop:dev`. This starts Vite, builds the Pi service with TypeScript source maps, and launches Electron with debugger endpoints. No DMG or staging build is required. Only Apple Silicon Macs are currently supported.
 
@@ -167,9 +177,11 @@ sudo apt-get install bubblewrap socat ripgrep
 
 macOS uses built-in `sandbox-exec`. Windows command isolation is not implemented by this executor. When platform dependencies are unavailable, commands are refused without falling back to host execution. Full access is a separate, explicit mode.
 
-Workspace mode blocks home-directory reads outside allowed runtime/project paths, restricts writes to the project folder, and denies network access. System programs and selected runtime installation directories remain readable. Protected paths include `.git`, `.data`, `.env*`, `.ssh`, `.aws`, `.codex`, `.agents`, `.pi`, `.npmrc`, `.netrc`, `credentials.json`, and private key files. File tools also reject traversal, symlinks, hardlinks, and special files. Native command policies deny protected paths as well.
+Workspace mode blocks home-directory reads outside allowed runtime/project paths, restricts writes to the project folder and its isolated shell runtime directory, and denies network access. System programs and selected runtime installation directories remain readable. Protected paths include `.git`, `.data`, `.env*`, `.ssh`, `.aws`, `.codex`, `.agents`, `.pi`, `.npmrc`, `.netrc`, `credentials.json`, and private key files. File tools also reject traversal, symlinks, hardlinks, and special files. Native command policies deny protected paths as well.
 
 Commands receive a minimal environment without provider keys or service credentials. Limits are 60 seconds by default, 120 seconds maximum, and 32 KB captured output. Cancellation terminates the command process group. File tools limit reads to 8 MiB and writes to 1 MiB. Runs are limited to 20 model turns and ten minutes, including approval waits.
+
+Shell commands run with the project as their working directory and an application-managed `HOME`, cache, and temporary directory outside the project. Windows also uses isolated `USERPROFILE`, `APPDATA`, and `LOCALAPPDATA` paths. This applies to workspace and Full access modes. Runtime state lives beside the project's session data; when development data is inside the project, the executor uses an external temporary runtime directory instead. Existing project folders named `Library` are not removed automatically.
 
 `SandboxExecutor` in `apps/grimoire-agent/src/sandbox.ts` owns filesystem and command operations. Pass an alternative executor through `PiServiceOptions.executor` to delegate to a remote sandbox or micro-VM with the same policy/approval flow. The SDK's unrestricted file/command operations are replaced with guarded implementations.
 
@@ -192,7 +204,7 @@ Desktop Pi sessions offer four browser tools:
 | `browser_click`    | Clicks a reference from the latest snapshot using a native input event               |
 | `browser_type`     | Replaces a referenced text field without submitting its form                         |
 
-Browser tools operate only for the active project and chat. Other sessions are rejected by the desktop host. All four browser tools run without approval in every permission mode, including read-only mode. File and command permissions remain governed by the selected mode. Audit records contain hashes, not entered text.
+Each project/chat has its own browser page, navigation state, storage partition, and serialized tool queue. Switching chats changes the drawer view without cancelling background browser work. Requests are routed to their owning session; snapshots and element references cannot be reused across sessions. Background actions use the target page’s DevTools input channel without focusing another session’s page. All four browser tools run without approval in every permission mode, including read-only mode. File and command permissions remain governed by the selected mode. Audit records contain hashes, not entered text.
 
 Every interaction validates the page URL, snapshot ID, element identity, and current label before execution. Actions invalidate references, requiring a fresh snapshot. Agents can fill password fields, while password values remain omitted from snapshots and input text is excluded from audit records. Credentials supplied in chat or tool arguments are still sent to the selected model and stored with chat transcripts. Tools cannot execute arbitrary scripts, open host files, change certificate preferences, or access other browsers. Snapshot contents are untrusted page data, may be sent to the selected model, and are stored with chat transcripts. Cross-origin iframe contents and arbitrary desktop automation are not exposed.
 

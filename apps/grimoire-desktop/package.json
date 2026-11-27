@@ -1,21 +1,24 @@
 {
   "name": "grimoire-desktop",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
-  "description": "Grimoire — Spells written in code",
+  "description": "Grimoire \u2014 Spells written in code",
   "author": "Grimoire",
   "type": "module",
   "main": "src/main.cjs",
   "scripts": {
-    "build": "node --check src/main.cjs && node --check src/preload.cjs && node --check scripts/dev.mjs && node --check src/embedded-browser.cjs && node --check src/browser-preferences.cjs && node --check src/browser-tools.cjs && node --check scripts/icon.mjs && node --check scripts/stage.mjs && node --check scripts/smoke.mjs",
+    "build": "node --check src/main.cjs && node --check src/preload.cjs && node --check scripts/dev.mjs && node --check src/embedded-browser.cjs && node --check src/browser-preferences.cjs && node --check src/browser-tools.cjs && node --check scripts/icon.mjs && node --check scripts/stage.mjs && node --check scripts/smoke.mjs && node --check src/updater.cjs && node --check src/browser-sessions.cjs && node --check scripts/browser-smoke.cjs && node --check scripts/verify-updates.mjs",
     "start": "electron .",
-    "dist": "pnpm run stage && electron-builder --mac dmg --arm64 --publish never",
+    "dist": "pnpm run stage && electron-builder --mac dmg zip --arm64 --publish never",
     "pack": "pnpm run stage && electron-builder --mac --arm64 --dir --publish never",
     "stage": "node scripts/stage.mjs",
     "dev:desktop": "node scripts/dev.mjs",
     "dist:msi": "pnpm run stage && electron-builder --win msi --x64 --publish never",
     "pack:win": "pnpm run stage && electron-builder --win --x64 --dir --publish never",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "dist:win": "pnpm run stage && electron-builder --win msi nsis --x64 --publish never",
+    "browser:smoke": "electron scripts/browser-smoke.cjs",
+    "verify:updates": "node scripts/verify-updates.mjs"
   },
   "devDependencies": {
     "@resvg/resvg-js": "2.6.2",
@@ -35,7 +38,9 @@
       "package.json",
       "src/embedded-browser.cjs",
       "src/browser-preferences.cjs",
-      "src/browser-tools.cjs"
+      "src/browser-tools.cjs",
+      "src/updater.cjs",
+      "src/browser-sessions.cjs"
     ],
     "extraResources": [
       {
@@ -67,12 +72,17 @@
           "arch": [
             "arm64"
           ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64"
+          ]
         }
       ],
       "category": "public.app-category.developer-tools",
       "icon": "build/icon.icns",
-      "identity": null,
-      "hardenedRuntime": false
+      "hardenedRuntime": true
     },
     "dmg": {
       "title": "Grimoire",
@@ -92,11 +102,24 @@
       ]
     },
     "artifactName": "Grimoire-${version}-${arch}.${ext}",
-    "publish": [],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "neilweixing",
+        "repo": "grimoire",
+        "releaseType": "release"
+      }
+    ],
     "win": {
       "target": [
         {
           "target": "msi",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "nsis",
           "arch": [
             "x64"
           ]
@@ -110,6 +133,18 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "runAfterFinish": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "runAfterFinish": false,
+      "artifactName": "Grimoire-${version}-${arch}-setup.${ext}",
+      "include": "build/installer.nsh"
     }
+  },
+  "dependencies": {
+    "electron-updater": "6.8.11"
   }
 }

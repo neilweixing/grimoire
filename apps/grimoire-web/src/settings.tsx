@@ -23,6 +23,7 @@ import {
 } from "@grimoire/core";
 import { api } from "./api";
 import { IntegrationSettings } from "./integration-settings";
+import { AppVersion } from "./desktop-updates";
 
 import { useI18n, type Locale } from "./i18n";
 
@@ -268,6 +269,7 @@ export function Settings({
                   {browserError}
                 </p>
               )}
+              <AppVersion />
             </div>
           ) : (
             <>

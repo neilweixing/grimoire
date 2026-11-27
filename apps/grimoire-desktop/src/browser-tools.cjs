@@ -177,7 +177,7 @@ function createBrowserAutomation({
       const requestContext = context;
       if (!matches(request))
         throw new Error(
-          "Browser tools are only available to the active project and chat.",
+          "Browser tools are restricted to their bound project and session.",
         );
       if (
         ![
@@ -207,10 +207,21 @@ function createBrowserAutomation({
           );
       };
       const deadline = Date.now() + 10_000;
-      while (
-        (contents.isLoadingMainFrame() || !view.getVisible()) &&
-        Date.now() < deadline
-      ) {
+      checkPage();
+      if (!view.getVisible()) {
+        if (!contents.debugger.isAttached()) contents.debugger.attach("1.3");
+        const { width, height } = view.getBounds();
+        await contents.debugger.sendCommand(
+          "Emulation.setDeviceMetricsOverride",
+          {
+            width: Math.max(320, width),
+            height: Math.max(240, height),
+            deviceScaleFactor: 0,
+            mobile: false,
+          },
+        );
+      }
+      while (contents.isLoadingMainFrame() && Date.now() < deadline) {
         checkPage();
         signal?.throwIfAborted();
         await new Promise((resolve) => setTimeout(resolve, 50));
@@ -230,10 +241,6 @@ function createBrowserAutomation({
           url: contents.getURL(),
           message: "The page is still loading. Read another snapshot shortly.",
         };
-      if (!view.getVisible())
-        throw new Error(
-          "The browser is hidden or blocked by a dialog. Close the dialog and retry.",
-        );
       if (request.tool === "browser_snapshot") {
         const result = await evaluate(contents, snapshotPage, {
           id: randomUUID(),
@@ -266,17 +273,21 @@ function createBrowserAutomation({
       signal?.throwIfAborted();
       if (!matches(request) || context !== requestContext || getView() !== view)
         throw new Error("The browser context changed.");
-      contents.focus();
-      if (request.tool === "browser_type") await contents.insertText(args.text);
+      // CDP targets this WebContents even while another session is visible or focused.
+      if (!contents.debugger.isAttached()) contents.debugger.attach("1.3");
+      if (request.tool === "browser_type")
+        await contents.debugger.sendCommand("Input.insertText", {
+          text: args.text,
+        });
       else {
-        contents.sendInputEvent({
-          type: "mouseDown",
+        await contents.debugger.sendCommand("Input.dispatchMouseEvent", {
+          type: "mousePressed",
           button: "left",
           clickCount: 1,
           ...point,
         });
-        contents.sendInputEvent({
-          type: "mouseUp",
+        await contents.debugger.sendCommand("Input.dispatchMouseEvent", {
+          type: "mouseReleased",
           button: "left",
           clickCount: 1,
           ...point,

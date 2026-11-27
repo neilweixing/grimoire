@@ -13,6 +13,7 @@ import { DEMO_PROVIDER_ID, type ProviderSettings } from "@grimoire/core";
 import { api } from "./api";
 import { useI18n } from "./i18n";
 import { Settings } from "./settings";
+import { SettingsFooter, UpdateButton } from "./desktop-updates";
 import { Plugins } from "./plugins";
 import { ChatThread, GrimoireMark } from "./thread";
 import { useGrimoireChat } from "./use-chat";
@@ -399,16 +400,7 @@ function WorkspaceApp({
               </div>
             ))}
           </nav>
-          <div className="sidebar-footer">
-            <button
-              className="settings-button"
-              onClick={() => setSettingsSection("general")}
-            >
-              <Settings2 size={17} />
-              {t("settings")}
-              <span>⌘ ,</span>
-            </button>
-          </div>
+          <SettingsFooter onSettings={() => setSettingsSection("general")} />
         </aside>
         <main className="main-panel">
           <BrowserTopbar
@@ -543,15 +535,18 @@ function SidebarRail({
       >
         <Folder size={19} />
       </button>
-      <button
-        type="button"
-        className="icon-button rail-settings"
-        aria-label={t("settings")}
-        title={t("settings")}
-        onClick={onSettings}
-      >
-        <Settings2 size={19} />
-      </button>
+      <div className="rail-footer">
+        <UpdateButton compact />
+        <button
+          type="button"
+          className="icon-button rail-settings"
+          aria-label={t("settings")}
+          title={t("settings")}
+          onClick={onSettings}
+        >
+          <Settings2 size={19} />
+        </button>
+      </div>
     </aside>
   );
 }
@@ -641,15 +636,7 @@ function EmptyProjects({
           collapsed={recentCollapsed}
           onToggle={toggleRecent}
         />
-        <div className="sidebar-footer">
-          <button
-            className="settings-button"
-            onClick={() => setSettingsOpen(true)}
-          >
-            <Settings2 size={17} />
-            {t("settings")}
-          </button>
-        </div>
+        <SettingsFooter onSettings={() => setSettingsOpen(true)} />
       </aside>
       <main className="main-panel">
         <BrowserTopbar

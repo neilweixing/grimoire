@@ -1,6 +1,6 @@
 {
   "name": "grimoire",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@12.23.0",
@@ -20,7 +20,8 @@
     "desktop:dmg": "pnpm --filter grimoire-desktop dist",
     "desktop:dev": "pnpm --filter grimoire-desktop run dev:desktop",
     "desktop:msi": "pnpm --filter grimoire-desktop run dist:msi",
-    "desktop:smoke": "pnpm --filter grimoire-desktop run smoke"
+    "desktop:smoke": "pnpm --filter grimoire-desktop run smoke",
+    "desktop:win": "pnpm --filter grimoire-desktop run dist:win"
   },
   "devDependencies": {
     "@types/node": "^22.19.0",

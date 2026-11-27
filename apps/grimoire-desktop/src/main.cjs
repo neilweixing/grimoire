@@ -3,6 +3,9 @@ const {
   BrowserWindow,
   dialog,
   Menu,
+  ipcMain,
+  shell,
+  autoUpdater: nativeUpdater,
   utilityProcess,
 } = require("electron");
 const { join, isAbsolute, dirname, basename } = require("node:path");
@@ -14,6 +17,8 @@ const {
   watch,
 } = require("node:fs");
 const { attachEmbeddedBrowser } = require("./embedded-browser.cjs");
+const { autoUpdater } = require("electron-updater");
+const { createDesktopUpdater, attachUpdateBridge } = require("./updater.cjs");
 
 const development = !app.isPackaged && process.env.GRIMOIRE_DESKTOP_DEV === "1";
 app.setName(development ? "Grimoire Dev" : "Grimoire");
@@ -38,6 +43,7 @@ let folderOpen = false;
 let agentWatcher;
 let agentReloadTimer;
 let agentRestarts = Promise.resolve();
+let desktopUpdater;
 const stoppingServices = new WeakSet();
 const smokeFile = process.env.GRIMOIRE_DESKTOP_SMOKE_REPORT;
 if (!app.requestSingleInstanceLock()) app.quit();
@@ -51,29 +57,56 @@ else {
 
 async function start() {
   Menu.setApplicationMenu(
-    Menu.buildFromTemplate([
-      {
-        label: "Grimoire",
-        submenu: [
-          { role: "about" },
-          { type: "separator" },
-          { role: "hide" },
-          { role: "hideOthers" },
-          { role: "unhide" },
-          { type: "separator" },
-          { role: "quit" },
-        ],
-      },
-      { role: "editMenu" },
-      { role: "viewMenu" },
-      { role: "windowMenu" },
-    ]),
+    process.platform === "win32"
+      ? null
+      : Menu.buildFromTemplate([
+          {
+            label: "Grimoire",
+            submenu: [
+              { role: "about" },
+              { type: "separator" },
+              { role: "hide" },
+              { role: "hideOthers" },
+              { role: "unhide" },
+              { type: "separator" },
+              { role: "quit" },
+            ],
+          },
+          { role: "editMenu" },
+          { role: "viewMenu" },
+          { role: "windowMenu" },
+        ]),
   );
   const agentUrl = await startAgent();
   url = development ? process.env.GRIMOIRE_DESKTOP_DEV_URL : agentUrl;
   if (!url || !/^http:\/\/127\.0\.0\.1:\d+\/?$/.test(url))
     throw new Error("Invalid local desktop URL.");
+  desktopUpdater = createDesktopUpdater({
+    app,
+    updater: autoUpdater,
+    nativeUpdater,
+    getWindow: () => window,
+    shell,
+    log,
+    beforeInstall: async () => {
+      await stopAgent(service);
+      quitting = true;
+      agentWatcher?.close();
+      clearTimeout(agentReloadTimer);
+    },
+    onInstallFailure: () => {
+      app.relaunch();
+      app.exit(1);
+    },
+  });
+  attachUpdateBridge(
+    ipcMain,
+    desktopUpdater,
+    () => window,
+    () => new URL(url).origin,
+  );
   await openWindow();
+  if (!smokeFile) desktopUpdater.start();
   if (development) {
     publishDevState(agentUrl);
     agentWatcher = watch(
@@ -400,6 +433,8 @@ async function smokeTest() {
     JSON.stringify(
       {
         packaged: app.isPackaged,
+        applicationMenu: Menu.getApplicationMenu() !== null,
+        updates: desktopUpdater.snapshot(),
         arch: process.arch,
         electron: process.versions.electron,
         dataDir,
@@ -451,11 +486,11 @@ app.on("before-quit", (event) => {
   clearTimeout(agentReloadTimer);
   const timeout = setTimeout(() => {
     service.kill();
-    app.exit(0);
+    app.quit();
   }, 5000);
   service.once("exit", () => {
     clearTimeout(timeout);
-    app.exit(0);
+    app.quit();
   });
   service.postMessage({ type: "shutdown" });
 });

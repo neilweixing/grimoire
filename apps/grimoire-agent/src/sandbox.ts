@@ -7,7 +7,7 @@ import {
   realpath,
   writeFile,
 } from "node:fs/promises";
-import { existsSync, realpathSync, mkdirSync } from "node:fs";
+import { existsSync, realpathSync, mkdirSync, mkdtempSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
@@ -64,13 +64,21 @@ export class NativeSandboxExecutor implements SandboxExecutor {
   readonly root: string;
   readonly kind: string;
   readonly dependencyErrors: string[];
+  private runtimeDir?: string;
   constructor(
     root: string,
     private readonly unrestricted = false,
     private readonly readOnlyPaths: () => string[] = () => [],
+    runtimeDir?: string,
   ) {
     mkdirSync(root, { recursive: true, mode: 0o700 });
     this.root = realpathSync(root);
+    if (runtimeDir) {
+      const candidate = resolve(runtimeDir);
+      const local = relative(this.root, candidate);
+      if (local === ".." || local.startsWith(`..${sep}`) || isAbsolute(local))
+        this.runtimeDir = candidate;
+    }
     this.kind = unrestricted ? "host" : "native";
     this.dependencyErrors = ["darwin", "linux"].includes(process.platform)
       ? SandboxManager.checkDependencies().errors
@@ -147,7 +155,31 @@ export class NativeSandboxExecutor implements SandboxExecutor {
       (name) => this.unrestricted || !protectedName(name),
     );
   }
-  private config(): SandboxRuntimeConfig {
+  private shellDirectories() {
+    // Development data can live inside the project; use an external temp directory then.
+    this.runtimeDir ??= mkdtempSync(join(tmpdir(), "grimoire-shell-"));
+    mkdirSync(this.runtimeDir, { recursive: true, mode: 0o700 });
+    const root = realpathSync(this.runtimeDir);
+    const local = relative(this.root, root);
+    if (local !== ".." && !local.startsWith(`..${sep}`) && !isAbsolute(local))
+      throw new PolicyError("Shell runtime must be outside the workspace.");
+    const home = join(root, "home");
+    const temporary = join(root, "tmp");
+    for (const path of [
+      home,
+      temporary,
+      join(home, ".cache"),
+      join(home, ".config"),
+      join(home, ".local", "share"),
+      join(home, ".local", "state"),
+      ...(process.platform === "win32"
+        ? [join(home, "AppData", "Roaming"), join(home, "AppData", "Local")]
+        : []),
+    ])
+      mkdirSync(path, { recursive: true, mode: 0o700 });
+    return { root, home, temporary };
+  }
+  private config(runtimeRoot: string): SandboxRuntimeConfig {
     const home = homedir();
     const deny = [
       home,
@@ -186,12 +218,13 @@ export class NativeSandboxExecutor implements SandboxExecutor {
         denyRead: [...deny, ...sensitive],
         allowRead: [
           this.root,
+          runtimeRoot,
           ...this.readOnlyPaths(),
           ...["/opt/homebrew", "/usr/local", dirname(process.execPath)].filter(
             existsSync,
           ),
         ],
-        allowWrite: [this.root],
+        allowWrite: [this.root, runtimeRoot],
         denyWrite: [...sensitive, ...this.readOnlyPaths()],
       },
     };
@@ -202,6 +235,7 @@ export class NativeSandboxExecutor implements SandboxExecutor {
       throw new PolicyError(
         `Sandbox unavailable: ${this.dependencyErrors.join("; ")}`,
       );
+    const directories = this.shellDirectories();
     let argv = ["/bin/bash", "--noprofile", "--norc", "-c", command];
     if (process.platform === "win32") {
       const config = getPowerShellConfig();
@@ -225,9 +259,10 @@ export class NativeSandboxExecutor implements SandboxExecutor {
       });
       await initialization;
       const wrapped = await SandboxManager.wrapWithSandboxArgv(
-        command,
+        // SRT injects its own TMPDIR; restore the per-project temp path inside the sandbox.
+        `export TMPDIR="$TEMP"\n${command}`,
         "/bin/bash",
-        this.config(),
+        this.config(directories.root),
         options.signal,
       );
       argv = wrapped.argv;
@@ -235,16 +270,22 @@ export class NativeSandboxExecutor implements SandboxExecutor {
     // Never forward provider keys, proxy credentials, or the service environment.
     const env = {
       PATH: process.env.PATH || "/usr/bin:/bin",
-      HOME: this.root,
+      HOME: directories.home,
       LANG: "en_US.UTF-8",
-      TMPDIR: this.unrestricted ? tmpdir() : this.root,
+      TMPDIR: directories.temporary,
+      TEMP: directories.temporary,
+      TMP: directories.temporary,
+      XDG_CACHE_HOME: join(directories.home, ".cache"),
+      XDG_CONFIG_HOME: join(directories.home, ".config"),
+      XDG_DATA_HOME: join(directories.home, ".local", "share"),
+      XDG_STATE_HOME: join(directories.home, ".local", "state"),
       ...(process.platform === "win32"
         ? {
             SystemRoot: process.env.SystemRoot,
             WINDIR: process.env.WINDIR,
-            USERPROFILE: this.root,
-            TEMP: tmpdir(),
-            TMP: tmpdir(),
+            USERPROFILE: directories.home,
+            APPDATA: join(directories.home, "AppData", "Roaming"),
+            LOCALAPPDATA: join(directories.home, "AppData", "Local"),
           }
         : {}),
     };

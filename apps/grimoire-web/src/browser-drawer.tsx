@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { useI18n } from "./i18n";
 import { normalizeBrowserUrl } from "./browser-url";
+import type { DesktopUpdateBridge } from "./desktop-updates";
 
 type BrowserState = {
   url: string;
@@ -51,6 +52,7 @@ type BrowserCommand = {
 declare global {
   interface Window {
     grimoireDesktop?: {
+      updates?: DesktopUpdateBridge;
       browser: {
         command(command: BrowserCommand): Promise<BrowserState>;
         onState(listener: (state: BrowserState) => void): () => void;
