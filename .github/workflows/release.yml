@@ -1,0 +1,144 @@
+name: Publish release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Version tag matching the desktop package version
+        required: true
+        default: v0.1.0
+        type: string
+      build_run_id:
+        description: Successful Desktop installers workflow run ID
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      release_tag:
+        required: true
+        type: string
+      build_run_id:
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: release-${{ inputs.release_tag }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish verified installers
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      BUILD_RUN_ID: ${{ inputs.build_run_id }}
+      CURRENT_RUN_ID: ${{ github.run_id }}
+    steps:
+      - name: Verify source build
+        id: source
+        run: |
+          [[ "$BUILD_RUN_ID" =~ ^[0-9]+$ ]]
+          gh api "repos/$GH_REPO/actions/runs/$BUILD_RUN_ID" > "$RUNNER_TEMP/build-run.json"
+          python3 - <<'PY'
+          import json, os, re
+          from pathlib import Path
+          tag = os.environ['RELEASE_TAG']
+          if not re.fullmatch(r'v\d+\.\d+\.\d+', tag):
+              raise SystemExit('A stable version tag such as v0.1.0 is required.')
+          run = json.loads(Path(os.environ['RUNNER_TEMP'], 'build-run.json').read_text())
+          assert run['repository']['full_name'] == os.environ['GH_REPO']
+          assert run['path'] == '.github/workflows/desktop-build.yml'
+          assert run['event'] in ('push', 'workflow_dispatch')
+          assert run['head_branch'] in ('main', tag)
+          # A reusable release job runs after both package jobs in the same run.
+          same_run = os.environ['BUILD_RUN_ID'] == os.environ['CURRENT_RUN_ID']
+          if not same_run:
+              assert run['status'] == 'completed' and run['conclusion'] == 'success'
+          sha = run['head_sha']
+          assert re.fullmatch(r'[0-9a-f]{40}', sha)
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'sha={sha}\n')
+          PY
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.source.outputs.sha }}
+          persist-credentials: false
+      - name: Verify version
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          version = json.loads(Path('apps/grimoire-desktop/package.json').read_text())['version']
+          assert os.environ['RELEASE_TAG'] == f'v{version}', 'Tag and desktop version must match.'
+          PY
+      - name: Retrieve macOS installer
+        uses: actions/download-artifact@v4
+        with:
+          name: Grimoire-macOS-arm64
+          path: release-assets
+          run-id: ${{ inputs.build_run_id }}
+          github-token: ${{ github.token }}
+      - name: Retrieve Windows installer
+        uses: actions/download-artifact@v4
+        with:
+          name: Grimoire-Windows-x64
+          path: release-assets
+          run-id: ${{ inputs.build_run_id }}
+          github-token: ${{ github.token }}
+      - name: Prepare checksums and release notes
+        run: |
+          python3 - <<'PY'
+          import hashlib, os
+          from pathlib import Path
+          version = os.environ['RELEASE_TAG'][1:]
+          assets = Path('release-assets')
+          names = [f'Grimoire-{version}-arm64.dmg', f'Grimoire-{version}-x64.msi']
+          checksums = []
+          for name in names:
+              path = assets / name
+              assert path.is_file() and path.stat().st_size > 1024 * 1024, f'Missing installer: {name}'
+              checksums.append(f'{hashlib.sha256(path.read_bytes()).hexdigest()}  {name}\n')
+          (assets / 'SHA256SUMS.txt').write_text(''.join(checksums))
+          notes = f'''Desktop coding agent powered by the native Pi SDK and assistant-ui.
+
+          ## Downloads
+
+          - macOS Apple Silicon: `Grimoire-{version}-arm64.dmg`
+          - Windows x64: `Grimoire-{version}-x64.msi`
+          - `SHA256SUMS.txt`: SHA-256 checksums for both installers.
+
+          Application data, provider credentials, and local project folders are not included.
+
+          ## Current limitations
+
+          - Installers are unsigned; the operating system may display publisher or trust warnings.
+          - In-app automatic updates are not available yet. Install a new version manually to update.
+          - Windows shell execution requires explicitly confirmed Full access; a native Windows sandbox is not enabled.
+
+          Both installers passed startup checks, including an actual MSI installation on Windows.
+          Build: https://github.com/{os.environ['GH_REPO']}/actions/runs/{os.environ['BUILD_RUN_ID']}
+          '''
+          # Remove YAML indentation from the Markdown paragraphs.
+          notes = '\n'.join(line.lstrip() for line in notes.splitlines())
+          Path(os.environ['RUNNER_TEMP'], 'release-notes.md').write_text(notes + '\n')
+          PY
+      - name: Publish release with installers
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+        run: |
+          version="${RELEASE_TAG#v}"
+          gh release create "$RELEASE_TAG" \
+            "release-assets/Grimoire-$version-arm64.dmg" \
+            "release-assets/Grimoire-$version-x64.msi" \
+            release-assets/SHA256SUMS.txt \
+            --repo "$GH_REPO" --target "$SOURCE_SHA" \
+            --title "Grimoire $RELEASE_TAG" \
+            --notes-file "$RUNNER_TEMP/release-notes.md" --draft
+          gh release edit "$RELEASE_TAG" --repo "$GH_REPO" --draft=false --latest
