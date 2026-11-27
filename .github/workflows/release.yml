@@ -71,6 +71,8 @@ jobs:
           ref: ${{ steps.source.outputs.sha }}
           persist-credentials: false
       - name: Verify version
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
         run: |
           python3 - <<'PY'
           import json, os
@@ -78,6 +80,8 @@ jobs:
           version = json.loads(Path('apps/grimoire-desktop/package.json').read_text())['version']
           assert os.environ['RELEASE_TAG'] == f'v{version}', 'Tag and desktop version must match.'
           PY
+          comparison=$(gh api "repos/$GH_REPO/compare/$SOURCE_SHA...$RELEASE_TAG" --jq .status)
+          [[ "$comparison" == identical ]] || { echo 'The release tag must point to the verified build commit.' >&2; exit 1; }
       - name: Retrieve macOS installer
         uses: actions/download-artifact@v4
         with:
@@ -130,15 +134,13 @@ jobs:
           Path(os.environ['RUNNER_TEMP'], 'release-notes.md').write_text(notes + '\n')
           PY
       - name: Publish release with installers
-        env:
-          SOURCE_SHA: ${{ steps.source.outputs.sha }}
         run: |
           version="${RELEASE_TAG#v}"
           gh release create "$RELEASE_TAG" \
             "release-assets/Grimoire-$version-arm64.dmg" \
             "release-assets/Grimoire-$version-x64.msi" \
             release-assets/SHA256SUMS.txt \
-            --repo "$GH_REPO" --target "$SOURCE_SHA" \
+            --repo "$GH_REPO" --verify-tag \
             --title "Grimoire $RELEASE_TAG" \
             --notes-file "$RUNNER_TEMP/release-notes.md" --draft
           gh release edit "$RELEASE_TAG" --repo "$GH_REPO" --draft=false --latest
