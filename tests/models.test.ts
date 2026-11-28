@@ -88,8 +88,18 @@ describe("provider model discovery", () => {
         new Response("upstream fixture-secret", { status: 401 }),
       );
       const response = await createApp(settings).request(
-        "/api/providers/gateway/models",
-        { headers: { "Accept-Language": "en" } },
+        "/api/providers/discover",
+        {
+          method: "POST",
+          headers: {
+            "Accept-Language": "en",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            id: provider.id,
+            provider: { ...provider, apiKey: "" },
+          }),
+        },
       );
       expect(response.status).toBe(502);
       expect(await response.text()).not.toContain("fixture-secret");

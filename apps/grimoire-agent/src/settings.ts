@@ -4,9 +4,11 @@ import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import {
   DEMO_PROVIDER_ID,
+  configuredModelIds,
   providerInputSchema,
   type ProviderInput,
   type ProviderSettings,
+  type ModelCapabilities,
 } from "@grimoire/core";
 
 export type StoredProvider = ProviderInput & { id: string };
@@ -39,6 +41,15 @@ export class SettingsStore {
       this.state = {
         providers: parsed.providers.map((p) => ({
           ...providerInputSchema.parse(p),
+          models: p.models ?? [
+            ...new Set([
+              p.model,
+              ...Object.keys(p.modelOverrides ?? {}),
+              ...(parsed.activeProviderId === p.id && parsed.activeModel
+                ? [parsed.activeModel]
+                : []),
+            ]),
+          ],
           id: p.id,
         })),
         activeProviderId: parsed.activeProviderId,
@@ -87,21 +98,55 @@ export class SettingsStore {
       this.activate(id);
       return;
     }
-    if (!this.has(id)) throw new Error("Provider not found");
+    const provider = this.get(id);
+    if (!provider) throw new Error("Provider not found");
+    if (!configuredModelIds(provider).includes(model))
+      throw new Error("Model is not configured for this provider.");
     this.persist({ ...this.state, activeProviderId: id, activeModel: model });
   }
 
   save(input: ProviderInput, id: string = randomUUID()): void {
     const previous = this.state.providers.find((p) => p.id === id);
-    const provider = { ...input, id, apiKey: input.apiKey || previous?.apiKey };
+    const sameConnection =
+      previous &&
+      previous.kind === input.kind &&
+      previous.nativeProvider === input.nativeProvider &&
+      (previous.baseUrl || "") === (input.baseUrl || "");
+    const provider = {
+      ...input,
+      models: configuredModelIds(input),
+      id,
+      apiKey: input.apiKey || (sameConnection ? previous.apiKey : undefined),
+    };
     const providers = this.state.providers.filter((p) => p.id !== id);
     this.persist({
       ...this.state,
       providers: [...providers, provider],
       activeModel:
-        this.state.activeProviderId === id && input.model !== previous?.model
+        this.state.activeProviderId === id &&
+        (input.model !== previous?.model ||
+          !configuredModelIds(provider).includes(
+            this.state.activeModel ?? input.model,
+          ))
           ? undefined
           : this.state.activeModel,
+    });
+  }
+
+  cacheModelMetadata(
+    id: string,
+    metadata: Record<string, ModelCapabilities>,
+  ): void {
+    const provider = this.get(id);
+    if (!provider || !Object.keys(metadata).length) return;
+    const merged = { ...provider.modelMetadata, ...metadata };
+    if (JSON.stringify(provider.modelMetadata) === JSON.stringify(merged))
+      return;
+    this.persist({
+      ...this.state,
+      providers: this.state.providers.map((entry) =>
+        entry.id === id ? { ...entry, modelMetadata: merged } : entry,
+      ),
     });
   }
 

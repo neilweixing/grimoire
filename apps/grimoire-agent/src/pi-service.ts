@@ -1,3 +1,4 @@
+import { selectProviderModel } from "./provider-catalog.js";
 import {
   mkdirSync,
   readFileSync,
@@ -33,6 +34,7 @@ import {
   type PiThinkingLevel,
 } from "@assistant-ui/react-pi/node";
 import type { AgentEvent } from "@earendil-works/pi-agent-core";
+import { configuredModelIds, thinkingLevelSchema } from "@grimoire/core";
 import type {
   Conversation,
   PermissionMode,
@@ -87,7 +89,11 @@ export class PiService {
   readonly integrations: IntegrationStore;
   private readonly integrationRuntimes = new Map<
     string,
-    { api: ExtensionAPI; idle: () => boolean }
+    {
+      api: ExtensionAPI;
+      idle: () => boolean;
+      model: () => ExtensionContext["model"];
+    }
   >();
   private readonly integrationIssues = new Map<string, { message: string }[]>();
   private readonly pendingReloads = new Set<string>();
@@ -309,6 +315,27 @@ export class PiService {
       await (await this.supervisor()).reloadThread(threadId);
       this.syncProviders();
     }
+    if (threadId) await this.refreshThreadModel(threadId);
+  }
+  private async refreshThreadModel(threadId: string) {
+    const supervisor = await this.supervisor();
+    this.syncProviders();
+    const runtime = this.integrationRuntimes.get(threadId);
+    if (!runtime?.idle()) return;
+    const current = runtime.model();
+    if (!current) return;
+    const latest = this.modelRuntime?.getModel(current.provider, current.id);
+    if (!latest || JSON.stringify(current) === JSON.stringify(latest)) return;
+    const previous = thinkingLevelSchema.safeParse(
+      (await supervisor.getThread(threadId)).metadata.config?.thinkingLevel,
+    );
+    await supervisor.setModel(threadId, {
+      provider: current.provider,
+      modelId: current.id,
+    });
+    // Native Pi clamps the existing effort only when the updated model requires it.
+    if (previous.success)
+      await supervisor.setThinkingLevel(threadId, previous.data);
   }
   async changeIntegrations(action: () => Promise<void> | void) {
     if (this.updatingIntegrations)
@@ -373,7 +400,11 @@ export class PiService {
       }
       pi.on("session_start", (_event, ctx) => {
         const id = ctx.sessionManager.getSessionId();
-        this.integrationRuntimes.set(id, { api: pi, idle: () => ctx.isIdle() });
+        this.integrationRuntimes.set(id, {
+          api: pi,
+          idle: () => ctx.isIdle(),
+          model: () => ctx.model,
+        });
         this.integrationIssues.set(id, issues);
         this.pendingReloads.delete(id);
       });
@@ -592,12 +623,7 @@ export class PiService {
   private providerFor(providerId?: string, model?: string) {
     const provider = providerId ? this.settings.get(providerId) : undefined;
     return provider
-      ? {
-          ...provider,
-          model: model ?? provider.model,
-          contextWindow:
-            model === provider.model ? provider.contextWindow : undefined,
-        }
+      ? selectProviderModel(provider, model ?? provider.model)
       : undefined;
   }
   syncProviders() {
@@ -610,17 +636,16 @@ export class PiService {
       }
     for (const entry of providers) {
       const provider = this.settings.get(entry.id)!;
-      const ids = this.catalogs.get(entry.id) ?? new Set<string>();
-      ids.add(provider.model);
-      if (this.settings.active()?.id === provider.id)
-        ids.add(this.settings.active()!.model);
+      const ids = new Set(configuredModelIds(provider));
       this.catalogs.set(entry.id, ids);
       const models = [...ids].map((id) => {
-        const selected = { ...provider, model: id };
+        const selected = selectProviderModel(provider, id);
         const { model } = providerRuntime(selected);
         return {
           ...model,
-          reasoning: modelThinkingLevels(selected).length > 1,
+          reasoning: modelThinkingLevels(selected).some(
+            (level) => level !== "off",
+          ),
           contextWindow: modelContextWindow(selected) ?? model.contextWindow,
         };
       });
@@ -637,13 +662,11 @@ export class PiService {
   async setModel(threadId: string, providerId: string, modelId: string) {
     if (providerId !== "demo" && !this.settings.has(providerId))
       throw new PolicyError("Provider not found.");
+    const provider = this.settings.get(providerId);
+    if (provider && !configuredModelIds(provider).includes(modelId))
+      throw new PolicyError("Model is not configured for this provider.");
     const supervisor = await this.supervisor();
-    if (providerId !== "demo") {
-      const models = this.catalogs.get(providerId) ?? new Set<string>();
-      models.add(modelId);
-      this.catalogs.set(providerId, models);
-      this.syncProviders();
-    }
+    this.syncProviders();
     await supervisor.setModel(threadId, { provider: providerId, modelId });
   }
   async setThinking(threadId: string, level: ThinkingLevel) {
@@ -653,18 +676,23 @@ export class PiService {
       snapshot.metadata.config?.provider,
       snapshot.metadata.config?.modelId,
     );
-    if (!modelThinkingLevels(provider).includes(level) || level === "max")
+    if (!modelThinkingLevels(provider).includes(level))
       throw new PolicyError(
         "This reasoning effort is not supported by the adapter/model.",
       );
+    // Rebind the latest capabilities before Pi clamps the requested level.
+    this.syncProviders();
+    if (provider)
+      await supervisor.setModel(threadId, {
+        provider: provider.id,
+        modelId: provider.model,
+      });
     await supervisor.setThinkingLevel(threadId, level as PiThinkingLevel);
   }
   thinkingLevels(providerId: string, modelId: string) {
     if (providerId !== "demo" && !this.settings.has(providerId))
       throw new PolicyError("Provider not found.");
-    return modelThinkingLevels(this.providerFor(providerId, modelId)).filter(
-      (level) => level !== "max",
-    );
+    return modelThinkingLevels(this.providerFor(providerId, modelId));
   }
   locale(threadId: string, locale: string | undefined) {
     this.locales.set(threadId, locale?.startsWith("en") ? "en" : "zh");

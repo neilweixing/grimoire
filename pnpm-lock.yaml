@@ -182,7 +182,8 @@ settings:
   excludeLinksFromLockfile: false
 
 patchedDependencies:
-  '@assistant-ui/react-pi@0.0.35': cc5564fe73e7bffa24b13ab3fcf69819fb8a28e072fe0634591470b58013a971
+  '@assistant-ui/react-pi@0.0.35': 58a14f4930ff2b4f33499bc90f189b597bfb4713b2df2a283fbb5ca6de4a2bcc
+  '@earendil-works/pi-coding-agent@1.6.1': 7019258b5940ebfc557fa1f8fbc50b0bd58427fc23c2d3e96cde05b6909d276e
 
 importers:
 
@@ -208,7 +209,7 @@ importers:
         version: 0.0.83
       '@assistant-ui/react-pi':
         specifier: 0.0.35
-        version: 0.0.35(patch_hash=cc5564fe73e7bffa24b13ab3fcf69819fb8a28e072fe0634591470b58013a971)(@assistant-ui/react@0.15.38(@types/react-dom@19.3.0(@types/react@19.3.2))(@types/react@19.3.2)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(@assistant-ui/store@0.3.25(@assistant-ui/tap@0.9.27(@types/react@19.3.2)(react@19.3.1))(@types/react@19.3.2)(react@19.3.1))(@assistant-ui/tap@0.9.27(@types/react@19.3.2)(react@19.3.1))(@earendil-works/pi-coding-agent@1.6.1(@smithy/signature-v4@5.7.5)(google-auth-library@10.9.1(supports-color@7.2.0))(supports-color@7.2.0)(ws@8.23.0)(zod@4.6.7))(@types/react@19.3.2)(react@19.3.1)
+        version: 0.0.35(patch_hash=58a14f4930ff2b4f33499bc90f189b597bfb4713b2df2a283fbb5ca6de4a2bcc)(@assistant-ui/react@0.15.38(@types/react-dom@19.3.0(@types/react@19.3.2))(@types/react@19.3.2)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(@assistant-ui/store@0.3.25(@assistant-ui/tap@0.9.27(@types/react@19.3.2)(react@19.3.1))(@types/react@19.3.2)(react@19.3.1))(@assistant-ui/tap@0.9.27(@types/react@19.3.2)(react@19.3.1))(@earendil-works/pi-coding-agent@1.6.1(patch_hash=7019258b5940ebfc557fa1f8fbc50b0bd58427fc23c2d3e96cde05b6909d276e)(@smithy/signature-v4@5.7.5)(google-auth-library@10.9.1(supports-color@7.2.0))(supports-color@7.2.0)(ws@8.23.0)(zod@4.6.7))(@types/react@19.3.2)(react@19.3.1)
       '@earendil-works/pi-agent-core':
         specifier: 1.6.1
         version: 1.6.1(@smithy/signature-v4@5.7.5)(google-auth-library@10.9.1(supports-color@7.2.0))(supports-color@7.2.0)(undici@8.12.4)(ws@8.23.0)(zod@4.6.7)
@@ -217,7 +218,7 @@ importers:
         version: 1.6.1(@smithy/signature-v4@5.7.5)(google-auth-library@10.9.1(supports-color@7.2.0))(supports-color@7.2.0)(undici@8.12.4)(ws@8.23.0)(zod@4.6.7)
       '@earendil-works/pi-coding-agent':
         specifier: 1.6.1
-        version: 1.6.1(@smithy/signature-v4@5.7.5)(google-auth-library@10.9.1(supports-color@7.2.0))(supports-color@7.2.0)(ws@8.23.0)(zod@4.6.7)
+        version: 1.6.1(patch_hash=7019258b5940ebfc557fa1f8fbc50b0bd58427fc23c2d3e96cde05b6909d276e)(@smithy/signature-v4@5.7.5)(google-auth-library@10.9.1(supports-color@7.2.0))(supports-color@7.2.0)(ws@8.23.0)(zod@4.6.7)
       '@earendil-works/pi-schema':
         specifier: 1.6.1
         version: 1.6.1
@@ -230,6 +231,9 @@ importers:
       hono:
         specifier: ^4.10.0
         version: 4.13.22
+      semver:
+        specifier: ^7.8.5
+        version: 7.8.5
       typebox:
         specifier: 1.3.27
         version: 1.3.27
@@ -237,6 +241,9 @@ importers:
         specifier: ^4.6.7
         version: 4.6.7
     devDependencies:
+      '@types/semver':
+        specifier: ^7.8.0
+        version: 7.8.0
       tsup:
         specifier: ^8.5.0
         version: 8.5.1(jiti@2.7.0)(postcss@8.5.33)(supports-color@7.2.0)(tsx@4.23.15)(typescript@5.9.3)(yaml@2.9.0)
@@ -262,6 +269,9 @@ importers:
 
   apps/grimoire-web:
     dependencies:
+      '@assistant-ui/core':
+        specifier: 0.3.38
+        version: 0.3.38(@assistant-ui/store@0.3.25(@assistant-ui/tap@0.9.27(@types/react@19.3.2)(react@19.3.1))(@types/react@19.3.2)(react@19.3.1))(@assistant-ui/tap@0.9.27(@types/react@19.3.2)(react@19.3.1))(@types/react@19.3.2)(react@19.3.1)
       '@assistant-ui/react':
         specifier: 0.15.38
         version: 0.15.38(@types/react-dom@19.3.0(@types/react@19.3.2))(@types/react@19.3.2)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
@@ -270,10 +280,16 @@ importers:
         version: 0.14.26(@assistant-ui/react@0.15.38(@types/react-dom@19.3.0(@types/react@19.3.2))(@types/react@19.3.2)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(@types/react-dom@19.3.0(@types/react@19.3.2))(@types/react@19.3.2)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(supports-color@7.2.0)
       '@assistant-ui/react-pi':
         specifier: 0.0.35
-        version: 0.0.35(patch_hash=cc5564fe73e7bffa24b13ab3fcf69819fb8a28e072fe0634591470b58013a971)(@assistant-ui/react@0.15.38(@types/react-dom@19.3.0(@types/react@19.3.2))(@types/react@19.3.2)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(@assistant-ui/store@0.3.25(@assistant-ui/tap@0.9.27(@types/react@19.3.2)(react@19.3.1))(@types/react@19.3.2)(react@19.3.1))(@assistant-ui/tap@0.9.27(@types/react@19.3.2)(react@19.3.1))(@earendil-works/pi-coding-agent@1.6.1(@smithy/signature-v4@5.7.5)(google-auth-library@10.9.1(supports-color@7.2.0))(supports-color@7.2.0)(ws@8.23.0)(zod@4.6.7))(@types/react@19.3.2)(react@19.3.1)
+        version: 0.0.35(patch_hash=58a14f4930ff2b4f33499bc90f189b597bfb4713b2df2a283fbb5ca6de4a2bcc)(@assistant-ui/react@0.15.38(@types/react-dom@19.3.0(@types/react@19.3.2))(@types/react@19.3.2)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(@assistant-ui/store@0.3.25(@assistant-ui/tap@0.9.27(@types/react@19.3.2)(react@19.3.1))(@types/react@19.3.2)(react@19.3.1))(@assistant-ui/tap@0.9.27(@types/react@19.3.2)(react@19.3.1))(@earendil-works/pi-coding-agent@1.6.1(patch_hash=7019258b5940ebfc557fa1f8fbc50b0bd58427fc23c2d3e96cde05b6909d276e)(@smithy/signature-v4@5.7.5)(google-auth-library@10.9.1(supports-color@7.2.0))(supports-color@7.2.0)(ws@8.23.0)(zod@4.6.7))(@types/react@19.3.2)(react@19.3.1)
       '@grimoire/core':
         specifier: workspace:*
         version: link:../../packages/grimoire-core
+      '@radix-ui/react-dropdown-menu':
+        specifier: 2.2.1
+        version: 2.2.1(@types/react-dom@19.3.0(@types/react@19.3.2))(@types/react@19.3.2)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
+      '@radix-ui/react-tooltip':
+        specifier: 1.4.1
+        version: 1.4.1(@types/react-dom@19.3.0(@types/react@19.3.2))(@types/react@19.3.2)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
       lucide-react:
         specifier: ^0.577.0
         version: 0.577.0(react@19.3.1)
@@ -2127,6 +2143,9 @@ packages:
 
   '@types/retry@0.12.0':
     resolution: {integrity: sha512-wWKOClTTiizcZhXnPY4wikVAwmdYHp8q6DmC+EJUzAMsycb7HB32Kh9RN4+0gExjmPmZSAQjgURXIGATPegAvA==}
+
+  '@types/semver@7.8.0':
+    resolution: {integrity: sha512-1mAINjtQCXXeLkJ9ehXkwOcBpqtLxiVtKhpUf83DdRNdQKV0iXZpaHYqRr7nj+wvxuJzoAmAwXI+sCNMv1CzLQ==}
 
   '@types/unist@2.0.11':
     resolution: {integrity: sha512-CmBKiL6NNo/OqgmMn95Fk9Whlp2mtvIv+KNpQKN2F4SjvrEesubTRWGYSg+BnWZOnlCaSTU1sMpsBOzgbYhnsA==}
@@ -4270,7 +4289,7 @@ snapshots:
       - react-dom
       - supports-color
 
-  '@assistant-ui/react-pi@0.0.35(patch_hash=cc5564fe73e7bffa24b13ab3fcf69819fb8a28e072fe0634591470b58013a971)(@assistant-ui/react@0.15.38(@types/react-dom@19.3.0(@types/react@19.3.2))(@types/react@19.3.2)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(@assistant-ui/store@0.3.25(@assistant-ui/tap@0.9.27(@types/react@19.3.2)(react@19.3.1))(@types/react@19.3.2)(react@19.3.1))(@assistant-ui/tap@0.9.27(@types/react@19.3.2)(react@19.3.1))(@earendil-works/pi-coding-agent@1.6.1(@smithy/signature-v4@5.7.5)(google-auth-library@10.9.1(supports-color@7.2.0))(supports-color@7.2.0)(ws@8.23.0)(zod@4.6.7))(@types/react@19.3.2)(react@19.3.1)':
+  '@assistant-ui/react-pi@0.0.35(patch_hash=58a14f4930ff2b4f33499bc90f189b597bfb4713b2df2a283fbb5ca6de4a2bcc)(@assistant-ui/react@0.15.38(@types/react-dom@19.3.0(@types/react@19.3.2))(@types/react@19.3.2)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(@assistant-ui/store@0.3.25(@assistant-ui/tap@0.9.27(@types/react@19.3.2)(react@19.3.1))(@types/react@19.3.2)(react@19.3.1))(@assistant-ui/tap@0.9.27(@types/react@19.3.2)(react@19.3.1))(@earendil-works/pi-coding-agent@1.6.1(patch_hash=7019258b5940ebfc557fa1f8fbc50b0bd58427fc23c2d3e96cde05b6909d276e)(@smithy/signature-v4@5.7.5)(google-auth-library@10.9.1(supports-color@7.2.0))(supports-color@7.2.0)(ws@8.23.0)(zod@4.6.7))(@types/react@19.3.2)(react@19.3.1)':
     dependencies:
       '@assistant-ui/core': 0.3.38(@assistant-ui/store@0.3.25(@assistant-ui/tap@0.9.27(@types/react@19.3.2)(react@19.3.1))(@types/react@19.3.2)(react@19.3.1))(@assistant-ui/tap@0.9.27(@types/react@19.3.2)(react@19.3.1))(@types/react@19.3.2)(react@19.3.1)
       '@assistant-ui/react': 0.15.38(@types/react-dom@19.3.0(@types/react@19.3.2))(@types/react@19.3.2)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
@@ -4281,7 +4300,7 @@ snapshots:
       assistant-stream: 0.3.59
       react: 19.3.1
     optionalDependencies:
-      '@earendil-works/pi-coding-agent': 1.6.1(@smithy/signature-v4@5.7.5)(google-auth-library@10.9.1(supports-color@7.2.0))(supports-color@7.2.0)(ws@8.23.0)(zod@4.6.7)
+      '@earendil-works/pi-coding-agent': 1.6.1(patch_hash=7019258b5940ebfc557fa1f8fbc50b0bd58427fc23c2d3e96cde05b6909d276e)(@smithy/signature-v4@5.7.5)(google-auth-library@10.9.1(supports-color@7.2.0))(supports-color@7.2.0)(ws@8.23.0)(zod@4.6.7)
       '@types/react': 19.3.2
     transitivePeerDependencies:
       - '@opentelemetry/api'
@@ -4561,7 +4580,7 @@ snapshots:
     dependencies:
       quickjs-wasi: 3.6.2
 
-  '@earendil-works/pi-coding-agent@1.6.1(@smithy/signature-v4@5.7.5)(google-auth-library@10.9.1(supports-color@7.2.0))(supports-color@7.2.0)(ws@8.23.0)(zod@4.6.7)':
+  '@earendil-works/pi-coding-agent@1.6.1(patch_hash=7019258b5940ebfc557fa1f8fbc50b0bd58427fc23c2d3e96cde05b6909d276e)(@smithy/signature-v4@5.7.5)(google-auth-library@10.9.1(supports-color@7.2.0))(supports-color@7.2.0)(ws@8.23.0)(zod@4.6.7)':
     dependencies:
       '@earendil-works/pi-agent-core': 1.6.1(@smithy/signature-v4@5.7.5)(google-auth-library@10.9.1(supports-color@7.2.0))(supports-color@7.2.0)(undici@8.12.4)(ws@8.23.0)(zod@4.6.7)
       '@earendil-works/pi-ai': 1.6.1(@smithy/signature-v4@5.7.5)(google-auth-library@10.9.1(supports-color@7.2.0))(supports-color@7.2.0)(undici@8.12.4)(ws@8.23.0)(zod@4.6.7)
@@ -6060,6 +6079,8 @@ snapshots:
 
   '@types/retry@0.12.0': {}
 
+  '@types/semver@7.8.0': {}
+
   '@types/unist@2.0.11': {}
 
   '@types/unist@3.0.3': {}
@@ -6805,7 +6826,7 @@ snapshots:
       es6-error: 4.1.1
       matcher: 3.0.0
       roarr: 2.15.4
-      semver: 7.7.4
+      semver: 7.8.5
       serialize-error: 7.0.1
     optional: true
 
@@ -7555,11 +7576,11 @@ snapshots:
 
   node-abi@4.43.0:
     dependencies:
-      semver: 7.7.4
+      semver: 7.8.5
 
   node-api-version@0.2.1:
     dependencies:
-      semver: 7.7.4
+      semver: 7.8.5
 
   node-domexception@1.0.0: {}
 
@@ -7578,7 +7599,7 @@ snapshots:
       graceful-fs: 4.2.12
       nopt: 9.0.0
       proc-log: 6.1.0
-      semver: 7.7.4
+      semver: 7.8.5
       tar: 7.5.23
       tinyglobby: 0.2.17
       undici: 6.29.1

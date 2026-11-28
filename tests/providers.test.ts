@@ -113,6 +113,7 @@ describe("provider settings API", () => {
         name: "Gateway",
         kind: "openai-compatible",
         model: "default-model",
+        models: ["default-model", "another-model"],
         apiKey: "fixture-secret",
         contextWindow: 64000,
       },

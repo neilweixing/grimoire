@@ -4,7 +4,7 @@ import {
   type StreamFn,
 } from "@earendil-works/pi-agent-core";
 import {
-  getSupportedThinkingLevels,
+  normalizeContext,
   type Api,
   type Model,
   type AssistantMessageEventStream,
@@ -12,15 +12,15 @@ import {
 import { streamSimple as streamOpenAI } from "@earendil-works/pi-ai/api/openai-responses";
 import { streamSimple as streamCompatible } from "@earendil-works/pi-ai/api/openai-completions";
 import { streamSimple as streamAnthropic } from "@earendil-works/pi-ai/api/anthropic-messages";
-import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
-import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
-import {
-  thinkingLevelSchema,
-  type ChatMessage,
-  type ThinkingLevel,
-} from "@grimoire/core";
+import { type ChatMessage, type ThinkingLevel } from "@grimoire/core";
 import { assistantMessage, demoModel, createDemoStream } from "./demo.js";
 import type { StoredProvider } from "./settings.js";
+import {
+  knownModel,
+  modelCapabilities,
+  nativeProvider,
+  thinkingLevelMap,
+} from "./provider-catalog.js";
 import { systemPrompt, tools } from "./tools.js";
 import { errorMessage } from "./errors.js";
 
@@ -37,27 +37,43 @@ export function providerRuntime(
     return { model: demoModel, streamFn: createDemoStream(locale) };
   if (provider.kind !== "openai-compatible" && !provider.apiKey)
     throw new Error(errorMessage(locale, "missingKey"));
-  const catalog =
-    provider.kind === "anthropic" ? anthropicProvider() : openaiProvider();
-  const known = catalog.getModels().find((m) => m.id === provider.model);
-  if (!modelThinkingLevels(provider).includes(thinkingLevel)) {
+  const native =
+    provider.kind === "native"
+      ? nativeProvider(provider.nativeProvider)
+      : undefined;
+  if (provider.kind === "native" && !native)
+    throw new Error("Unknown native provider.");
+  const known = knownModel(provider);
+  const capabilities = modelCapabilities(provider);
+  if (
+    thinkingLevel !== "off" &&
+    !modelThinkingLevels(provider).includes(thinkingLevel)
+  ) {
     throw new Error(errorMessage(locale, "unsupportedThinking"));
   }
   const api =
-    provider.kind === "anthropic"
-      ? "anthropic-messages"
-      : provider.kind === "openai"
-        ? "openai-responses"
-        : "openai-completions";
+    native && known
+      ? known.api
+      : provider.kind === "anthropic"
+        ? "anthropic-messages"
+        : provider.kind === "openai"
+          ? "openai-responses"
+          : "openai-completions";
   const model: Model<Api> = {
     ...(known ?? demoModel),
     id: provider.model,
     name: provider.model,
     provider: provider.id,
     api,
-    reasoning: known?.reasoning ?? thinkingLevel !== "off",
+    reasoning: modelThinkingLevels(provider).some((level) => level !== "off"),
+    thinkingLevelMap: thinkingLevelMap(provider),
+    input: capabilities.input ?? known?.input ?? ["text"],
+    contextWindow:
+      capabilities.contextWindow ?? known?.contextWindow ?? 128_000,
+    maxTokens: capabilities.maxTokens ?? known?.maxTokens ?? 16_384,
     baseUrl:
       provider.baseUrl ||
+      native?.baseUrl ||
       (provider.kind === "anthropic"
         ? "https://api.anthropic.com"
         : "https://api.openai.com/v1"),
@@ -72,6 +88,12 @@ export function providerRuntime(
       apiKey: provider.apiKey || "local",
       onProviderStreamEvent: onProviderEvent ?? options?.onProviderStreamEvent,
     };
+    if (native)
+      return native.streamSimple(
+        { ...requestModel, provider: native.id },
+        normalizeContext(context),
+        authenticatedOptions,
+      );
     if (api === "anthropic-messages")
       return streamAnthropic(
         requestModel as Model<"anthropic-messages">,
@@ -96,28 +118,13 @@ export function providerRuntime(
 export function modelThinkingLevels(
   provider?: StoredProvider,
 ): ThinkingLevel[] {
-  if (!provider) return ["off"];
-  const catalog =
-    provider.kind === "anthropic" ? anthropicProvider() : openaiProvider();
-  const known = catalog
-    .getModels()
-    .find((model) => model.id === provider.model);
-  if (!known) return ["off", "minimal", "low", "medium", "high"];
-  const levels = getSupportedThinkingLevels(known);
-  return thinkingLevelSchema.options.filter(
-    (level) => level === "off" || levels.includes(level),
-  );
+  return provider
+    ? (modelCapabilities(provider).thinkingLevels ?? ["off"])
+    : ["off"];
 }
 
 export function modelContextWindow(provider?: StoredProvider): number | null {
-  if (!provider) return null;
-  if (provider.contextWindow) return provider.contextWindow;
-  const catalog =
-    provider.kind === "anthropic" ? anthropicProvider() : openaiProvider();
-  return (
-    catalog.getModels().find((model) => model.id === provider.model)
-      ?.contextWindow ?? null
-  );
+  return provider ? (modelCapabilities(provider).contextWindow ?? null) : null;
 }
 
 export function toPiMessages(
