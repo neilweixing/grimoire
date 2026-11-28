@@ -2,6 +2,8 @@ const { existsSync } = require("node:fs");
 const { join, dirname, resolve } = require("node:path");
 const { spawnSync } = require("node:child_process");
 
+const { createLocalMacInstaller } = require("./macos-update.cjs");
+
 const RELEASES_URL = "https://github.com/neilweixing/grimoire/releases/latest";
 
 function updateCapability(app, platform = process.platform) {
@@ -25,7 +27,7 @@ function updateCapability(app, platform = process.platform) {
     return signature.status === 0 &&
       /^TeamIdentifier=(?!not set)[A-Z0-9]+$/m.test(signature.stderr || "")
       ? "automatic"
-      : "macos-unsigned";
+      : "macos-local";
   }
   return "unsupported";
 }
@@ -41,6 +43,10 @@ function createDesktopUpdater({
   beforeInstall = async () => {},
   onInstallFailure = () => {},
   log = () => {},
+  dataDir,
+  localInstaller = platform === "darwin" && capability === "macos-local"
+    ? createLocalMacInstaller({ app, log, dataDir })
+    : undefined,
 }) {
   let state = {
     currentVersion: app.getVersion(),
@@ -55,6 +61,7 @@ function createDesktopUpdater({
   let downloadPromise;
   let downloadedFile;
   let pendingMacDownload;
+  let preparation;
   let startupTimer;
   let interval;
   const listeners = [];
@@ -75,7 +82,8 @@ function createDesktopUpdater({
   const failure = (error) => {
     updater.autoInstallOnAppQuit = false;
     log(`Update failed: ${String(error)}`);
-    if (state.phase === "installing") onInstallFailure();
+    if (state.phase === "installing" && capability !== "macos-local")
+      onInstallFailure();
     return publish({
       phase: "error",
       error:
@@ -125,7 +133,24 @@ function createDesktopUpdater({
     try {
       const availableVersion = version(info);
       downloadedFile = info.downloadedFile;
-      if (platform === "darwin" && capability === "automatic")
+      if (localInstaller) {
+        preparation = localInstaller
+          .prepare(
+            downloadedFile,
+            availableVersion,
+            updater.downloadedUpdateHelper?.fileInfo?.info?.sha512,
+          )
+          .then(() =>
+            publish({
+              phase: "downloaded",
+              availableVersion,
+              percent: 100,
+              error: null,
+            }),
+          );
+        // The event emitter does not await listeners; download() joins this work.
+        preparation.catch(failure);
+      } else if (platform === "darwin" && capability === "automatic")
         pendingMacDownload = availableVersion;
       else
         publish({
@@ -182,9 +207,11 @@ function createDesktopUpdater({
       throw new Error("Check for an available update before downloading.");
     // A user-requested download opts into installing on the next normal quit.
     updater.autoInstallOnAppQuit = capability === "automatic";
+    preparation = undefined;
     publish({ phase: "downloading", percent: 0, error: null });
     downloadPromise = Promise.resolve()
       .then(() => updater.downloadUpdate())
+      .then(() => preparation)
       .catch(failure)
       .finally(() => {
         downloadPromise = undefined;
@@ -203,8 +230,15 @@ function createDesktopUpdater({
       case "download":
         return download();
       case "quit":
-        if (state.phase !== "downloaded" || capability !== "automatic")
+        if (
+          state.phase !== "downloaded" ||
+          (capability !== "automatic" && !localInstaller)
+        )
           throw new Error("No installable update is ready.");
+        if (localInstaller) {
+          app.quit();
+          return snapshot();
+        }
         publish({ phase: "installing", error: null });
         try {
           await beforeInstall();
@@ -217,6 +251,7 @@ function createDesktopUpdater({
         if (
           state.phase !== "downloaded" ||
           capability === "automatic" ||
+          localInstaller ||
           typeof downloadedFile !== "string" ||
           !/\.(zip|exe)$/i.test(downloadedFile) ||
           !existsSync(downloadedFile)
@@ -236,6 +271,16 @@ function createDesktopUpdater({
   return {
     snapshot,
     command,
+    async installOnQuit() {
+      if (!localInstaller || state.phase !== "downloaded") return;
+      publish({ phase: "installing", error: null });
+      try {
+        await localInstaller.installOnQuit();
+      } catch (error) {
+        failure(error);
+        throw error;
+      }
+    },
     start() {
       if (
         startupTimer ||
@@ -244,6 +289,18 @@ function createDesktopUpdater({
         capability === "unsupported"
       )
         return;
+      if (localInstaller)
+        void localInstaller
+          .recover()
+          .then(async (result) => {
+            if (result?.status === "failed") {
+              // Reinitialize the feed before allowing a retry after a restart.
+              await check();
+              if (state.availableVersion === result.version)
+                failure(new Error(result.error));
+            }
+          })
+          .catch(failure);
       startupTimer = setTimeout(() => void check(), 15_000);
       interval = setInterval(() => void check(), 6 * 60 * 60 * 1000);
       startupTimer.unref?.();

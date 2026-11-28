@@ -126,7 +126,7 @@ jobs:
 
           - Installers are unsigned; the operating system may display publisher or trust warnings.
           - The app checks for releases in the background. Downloading requires clicking Update. After downloading, choose Quit and update or Later; supported installations apply the update on the next normal quit.
-          - macOS in-app installation requires a signed build. Unsigned macOS builds and MSI installations download updates for manual installation.
+          - Unsigned Apple Silicon macOS builds install updates on normal quit through a verified local replacement helper; the app must be installed in a writable folder outside a mounted DMG. Older versions without the helper need one manual upgrade. MSI installations still require manual installation.
           - ZIP, blockmap, and latest*.yml assets support the update client.
           - Windows shell execution requires explicitly confirmed Full access; a native Windows sandbox is not enabled.
 

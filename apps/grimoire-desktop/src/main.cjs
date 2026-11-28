@@ -10,7 +10,7 @@ const {
   clipboard,
   nativeTheme,
 } = require("electron");
-const { join, isAbsolute, dirname, basename } = require("node:path");
+const { join, isAbsolute, dirname, basename, resolve } = require("node:path");
 const {
   appendFileSync,
   readFileSync,
@@ -30,6 +30,8 @@ const {
 } = require("./data-directory.cjs");
 const { autoUpdater } = require("electron-updater");
 const { createDesktopUpdater, attachUpdateBridge } = require("./updater.cjs");
+
+const { waitForLocalUpdate } = require("./macos-update.cjs");
 
 const development = !app.isPackaged && process.env.GRIMOIRE_DESKTOP_DEV === "1";
 app.setName(development ? "Grimoire Dev" : "Grimoire");
@@ -58,6 +60,7 @@ let browserAutomation;
 let window;
 let url;
 let quitting = false;
+let quitPending = false;
 let folderOpen = false;
 let agentWatcher;
 let agentReloadTimer;
@@ -85,6 +88,15 @@ else {
 }
 
 async function start() {
+  if (
+    app.isPackaged &&
+    process.platform === "darwin" &&
+    (await waitForLocalUpdate(dataDir, resolve(app.getAppPath(), "../../..")))
+  ) {
+    app.relaunch();
+    app.exit(0);
+    return;
+  }
   Menu.setApplicationMenu(
     process.platform === "win32"
       ? null
@@ -117,6 +129,7 @@ async function start() {
     getWindow: () => window,
     shell,
     log,
+    dataDir,
     beforeInstall: async () => {
       await stopAgent(service);
       quitting = true;
@@ -577,19 +590,24 @@ app.on("activate", () => {
 });
 app.on("window-all-closed", () => app.quit());
 app.on("before-quit", (event) => {
-  if (quitting) return;
-  quitting = true;
-  if (!service?.pid) return;
+  if (quitting && !quitPending) return;
   event.preventDefault();
-  agentWatcher?.close();
-  clearTimeout(agentReloadTimer);
-  const timeout = setTimeout(() => {
-    service.kill();
-    app.quit();
-  }, 5000);
-  service.once("exit", () => {
-    clearTimeout(timeout);
-    app.quit();
-  });
-  service.postMessage({ type: "shutdown" });
+  if (quitPending) return;
+  quitting = true;
+  quitPending = true;
+  void (async () => {
+    try {
+      // Arm the detached installer before stopping services; it waits for this PID.
+      await desktopUpdater?.installOnQuit();
+      agentWatcher?.close();
+      clearTimeout(agentReloadTimer);
+      await stopAgent(service);
+      quitPending = false;
+      app.quit();
+    } catch (error) {
+      quitting = false;
+      quitPending = false;
+      log(`Unable to prepare application quit: ${error.message}`);
+    }
+  })();
 });

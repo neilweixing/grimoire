@@ -14,7 +14,11 @@ afterEach(() => {
   controllers.length = 0;
   vi.useRealTimers();
 });
-function setup(capability = "automatic", platform = "win32") {
+function setup(
+  capability = "automatic",
+  platform = "win32",
+  localInstaller?: object,
+) {
   const engine = Object.assign(new EventEmitter(), {
     checkForUpdates: vi.fn(async () => {
       engine.emit("update-available", {
@@ -49,6 +53,7 @@ function setup(capability = "automatic", platform = "win32") {
     getWindow: () => window,
     shell,
     beforeInstall,
+    localInstaller,
   });
   controllers.push(controller);
   return { controller, engine, native, app, window, frame, beforeInstall };
@@ -157,4 +162,105 @@ it("rejects update commands from webpages and subframes", async () => {
 it("bounds release notes and exposes plain text rather than executable HTML", () => {
   expect(releaseNotesText([{ note: "<p>A &amp; B</p>" }])).toBe("A & B");
   expect(releaseNotesText("a".repeat(20000)).length).toBe(12000);
+});
+
+it("stages unsigned macOS downloads before offering quit and never invokes Squirrel", async () => {
+  let prepared!: () => void;
+  const installer = {
+    prepare: vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          prepared = resolve;
+        }),
+    ),
+    installOnQuit: vi.fn(async () => {}),
+    recover: vi.fn(async () => undefined),
+  };
+  const { controller, engine, app, beforeInstall } = setup(
+    "macos-local",
+    "darwin",
+    installer,
+  );
+  Object.assign(engine, {
+    downloadedUpdateHelper: {
+      fileInfo: { info: { sha512: "trusted-checksum" } },
+    },
+  });
+  await controller.command({ action: "check" });
+  const download = controller.command({ action: "download" });
+  await vi.waitFor(() => expect(installer.prepare).toHaveBeenCalled());
+  expect(controller.snapshot().phase).toBe("downloading");
+  expect(installer.prepare).toHaveBeenCalledWith(
+    "/cache/update.exe",
+    "0.1.2",
+    "trusted-checksum",
+  );
+  prepared();
+  await download;
+  expect(controller.snapshot().phase).toBe("downloaded");
+  expect(engine.autoInstallOnAppQuit).toBe(false);
+  expect(installer.installOnQuit).not.toHaveBeenCalled();
+  await controller.command({ action: "quit" });
+  expect(app.quit).toHaveBeenCalledOnce();
+  await controller.installOnQuit();
+  expect(installer.installOnQuit).toHaveBeenCalledOnce();
+  expect(beforeInstall).not.toHaveBeenCalled();
+  expect(engine.quitAndInstall).not.toHaveBeenCalled();
+});
+it("does not offer installation when unsigned bundle preparation fails", async () => {
+  const installer = {
+    prepare: vi.fn(async () => {
+      throw new Error("invalid bundle");
+    }),
+    installOnQuit: vi.fn(),
+  };
+  const { controller } = setup("macos-local", "darwin", installer);
+  await controller.command({ action: "check" });
+  await controller.command({ action: "download" });
+  expect(controller.snapshot().phase).toBe("error");
+  await controller.installOnQuit();
+  expect(installer.installOnQuit).not.toHaveBeenCalled();
+  await expect(controller.command({ action: "quit" })).rejects.toThrow();
+});
+it("keeps an unsigned update retryable if its detached helper cannot start", async () => {
+  const installer = {
+    prepare: vi.fn(async () => {}),
+    installOnQuit: vi.fn(async () => {
+      throw new Error("helper failed");
+    }),
+  };
+  const { controller } = setup("macos-local", "darwin", installer);
+  await controller.command({ action: "check" });
+  await controller.command({ action: "download" });
+  await expect(controller.installOnQuit()).rejects.toThrow("helper failed");
+  expect(controller.snapshot()).toMatchObject({
+    phase: "error",
+    availableVersion: "0.1.2",
+  });
+  await controller.command({ action: "download" });
+  expect(controller.snapshot().phase).toBe("downloaded");
+});
+
+it("reloads update metadata after a failed local installation before allowing another download", async () => {
+  vi.useFakeTimers();
+  const installer = {
+    recover: vi.fn(async () => ({
+      status: "failed",
+      version: "0.1.2",
+      error: "replacement failed",
+    })),
+    prepare: vi.fn(async () => {}),
+    installOnQuit: vi.fn(),
+  };
+  const { controller, engine } = setup("macos-local", "darwin", installer);
+  controller.start();
+  await vi.advanceTimersByTimeAsync(0);
+  expect(engine.checkForUpdates).toHaveBeenCalledOnce();
+  expect(controller.snapshot()).toMatchObject({
+    phase: "error",
+    availableVersion: "0.1.2",
+  });
+  await controller.command({ action: "download" });
+  expect(installer.prepare).toHaveBeenCalledOnce();
+  expect(controller.snapshot().phase).toBe("downloaded");
 });

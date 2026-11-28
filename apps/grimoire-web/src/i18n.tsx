@@ -50,7 +50,7 @@ const en = {
   updateReady: "Update downloaded",
   updateDownloadedTitle: "Version {version} is ready",
   updateOnQuitMessage:
-    "The update will be installed the next time you close Grimoire. Choose Later to keep working, or Quit and update to install now. Running tasks will stop when the app closes.",
+    "The update will be installed the next time you quit Grimoire (⌘Q on macOS). Choose Later to keep working, or Quit and update to install now. Running tasks will stop when the app closes.",
   updateManualMessage:
     "The update is downloaded. This installation requires a manual update; open the installer to finish.",
   updateLater: "Later",
@@ -440,7 +440,7 @@ const zh: Record<TranslationKey, string> = {
   updateReady: "更新已下载",
   updateDownloadedTitle: "版本 {version} 已下载",
   updateOnQuitMessage:
-    "更新将在下次关闭 Grimoire 后安装，重新启动即可使用新版本。选择“稍后”可继续使用；点击“关闭并更新”会停止正在运行的任务并立即安装。",
+    "更新将在下次退出 Grimoire（macOS 使用 ⌘Q）后安装，重新启动即可使用新版本。选择“稍后”可继续使用；点击“关闭并更新”会停止正在运行的任务并立即安装。",
   updateManualMessage:
     "更新已下载。当前安装方式需要手动更新，请打开安装包完成安装。",
   updateLater: "稍后",
