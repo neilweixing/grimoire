@@ -1,4 +1,10 @@
-import { cpSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
@@ -47,10 +53,13 @@ cpSync(join(root, "apps/grimoire-web/dist"), join(stage, "web"), {
   recursive: true,
 });
 // The desktop runtime uses compiled files; workspace TypeScript stays out of the app.
+const agentVersion = JSON.parse(
+  readFileSync(join(root, "apps/grimoire-agent/package.json"), "utf8"),
+).version;
 writeFileSync(
   join(stage, "agent/package.json"),
   JSON.stringify(
-    { name: "grimoire-agent", version: "0.1.0", type: "module" },
+    { name: "grimoire-agent", version: agentVersion, type: "module" },
     null,
     2,
   ),

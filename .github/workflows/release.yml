@@ -6,7 +6,7 @@ on:
       release_tag:
         description: Version tag matching the desktop package version
         required: true
-        default: v0.1.1
+        default: v0.1.2
         type: string
       build_run_id:
         description: Successful Desktop installers workflow run ID
