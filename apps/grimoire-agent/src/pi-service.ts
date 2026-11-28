@@ -67,6 +67,7 @@ import {
   isProvisionalTitle,
 } from "./titles.js";
 import { IntegrationStore } from "./integrations.js";
+import { AttachmentStore } from "./attachments.js";
 
 export type PiServiceOptions = {
   dataDir?: string;
@@ -101,6 +102,7 @@ export class PiService {
   private readonly dataDir: string;
   private readonly audit: AuditLog;
   readonly integrations: IntegrationStore;
+  readonly attachments: AttachmentStore;
   private readonly integrationRuntimes = new Map<
     string,
     {
@@ -152,6 +154,7 @@ export class PiService {
       );
     // Pi and the executor must use the same canonical path (not /var vs /private/var).
     this.workspace = this.executor.root;
+    this.attachments = new AttachmentStore(this.dataDir, this.workspace);
     this.fullExecutor = new NativeSandboxExecutor(
       this.workspace,
       true,

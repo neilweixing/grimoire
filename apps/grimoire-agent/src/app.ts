@@ -4,6 +4,7 @@ import { streamSSE } from "hono/streaming";
 import {
   chatRequestSchema,
   configuredModelIds,
+  MAX_ATTACHMENT_BYTES,
   providerInputSchema,
   modelSelectionSchema,
   type AgentStreamEvent,
@@ -52,7 +53,16 @@ export function createApp(
       thinkingLevels: modelThinkingLevels(settings.active()),
     };
   };
-  app.use("/api/*", bodyLimit({ maxSize: 2 * 1024 * 1024 }));
+  app.use("/api/*", (c, next) =>
+    bodyLimit({
+      maxSize:
+        c.req.path === "/api/pi/attachments"
+          ? MAX_ATTACHMENT_BYTES + 64 * 1024
+          : 2 * 1024 * 1024,
+      onError: (context) =>
+        context.json({ error: "Request body is too large." }, 413),
+    })(c, next),
+  );
   app.use("/api/*", async (c, next) => {
     c.header("Cache-Control", "no-store");
     await next();

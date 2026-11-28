@@ -18,6 +18,7 @@ import { WorkspaceRegistry } from "../apps/grimoire-agent/src/workspaces";
 
 let directory: string;
 let service: PiService;
+let settings: SettingsStore;
 let server: Server;
 let offeredTools: string[];
 let titleRequests: number;
@@ -89,7 +90,7 @@ beforeEach(async () => {
                   function: {
                     name: "write",
                     arguments: JSON.stringify({
-                      path,
+                      path: join(directory, path),
                       content: "Approved code",
                     }),
                   },
@@ -115,7 +116,7 @@ beforeEach(async () => {
     response.end("data: [DONE]\n\n");
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const settings = new SettingsStore(join(directory, "providers.json"));
+  settings = new SettingsStore(join(directory, "providers.json"));
   settings.save(
     {
       name: "Fixture",
@@ -124,11 +125,22 @@ beforeEach(async () => {
       baseUrl: `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`,
       apiKey: "fixture-key",
       contextWindow: 1000,
+      models: ["test-model", "another-model"],
+      modelOverrides: {
+        "test-model": { thinkingLevels: ["off", "high"] },
+        "another-model": {
+          thinkingLevels: ["off", "high"],
+          contextWindow: 64000,
+          maxTokens: 2048,
+          input: ["text", "image"],
+        },
+      },
     },
     "fixture",
   );
   settings.activate("fixture");
   service = new PiService(settings, {
+    globalSkillRoot: join(directory, "home-agents"),
     dataDir: join(directory, "pi"),
     workspace: join(directory, "workspace"),
   });
@@ -168,7 +180,7 @@ it("uses native tools, persists sessions, and records real usage after one-time 
     () => supervisor.getThread(id),
     (value) => Boolean(value.hostUiRequests?.length),
   );
-  expect(existsSync(join(service.workspace, "approved.txt"))).toBe(false);
+  expect(existsSync(join(directory, "approved.txt"))).toBe(false);
   expect(offeredTools.sort()).toEqual([
     "bash",
     "edit",
@@ -198,7 +210,7 @@ it("uses native tools, persists sessions, and records real usage after one-time 
     (value) => value.metadata.status !== "running",
   );
   expect(JSON.stringify(finished.messages)).not.toContain('"isError":true');
-  expect(readFileSync(join(service.workspace, "approved.txt"), "utf8")).toBe(
+  expect(readFileSync(join(directory, "approved.txt"), "utf8")).toBe(
     "Approved code",
   );
   expect(service.getMetrics(id)).toHaveLength(1);
@@ -234,7 +246,7 @@ it("denies writes in read-only mode without asking for approval", async () => {
   );
   expect(completed.hostUiRequests ?? []).toEqual([]);
   expect(JSON.stringify(completed.messages)).toContain("Permission denied");
-  expect(existsSync(join(service.workspace, "deny.txt"))).toBe(false);
+  expect(existsSync(join(directory, "deny.txt"))).toBe(false);
 });
 it("cancels native approval without applying changes and keeps new chats isolated", async () => {
   const supervisor = await service.supervisor();
@@ -252,7 +264,7 @@ it("cancels native approval without applying changes and keeps new chats isolate
   const cancelled = await supervisor.getThread(first.metadata.id);
   expect(cancelled.hostUiRequests ?? []).toEqual([]);
   expect(cancelled.metadata.status).not.toBe("running");
-  expect(existsSync(join(service.workspace, "cancel.txt"))).toBe(false);
+  expect(existsSync(join(directory, "cancel.txt"))).toBe(false);
 });
 it("requires both server enablement and explicit acknowledgement for full access", async () => {
   const supervisor = await service.supervisor();
@@ -288,7 +300,7 @@ it("rejects approval and retains no write, then switches per-thread model and th
     (value) => value.metadata.status !== "running",
   );
   expect(JSON.stringify(finished.messages)).toContain("Approval denied");
-  expect(existsSync(join(service.workspace, "deny.txt"))).toBe(false);
+  expect(existsSync(join(directory, "deny.txt"))).toBe(false);
   await service.setThinking(thread.metadata.id, "high");
   expect(
     (await supervisor.getThread(thread.metadata.id)).metadata.config
@@ -297,11 +309,75 @@ it("rejects approval and retains no write, then switches per-thread model and th
   await expect(service.setThinking(thread.metadata.id, "max")).rejects.toThrow(
     "not supported",
   );
+  await expect(
+    service.setModel(thread.metadata.id, "fixture", "not-configured"),
+  ).rejects.toThrow("not configured");
   await service.setModel(thread.metadata.id, "fixture", "another-model");
   expect(
     (await supervisor.getThread(thread.metadata.id)).metadata.config?.modelId,
   ).toBe("another-model");
   expect(service.thinkingLevels("fixture", "another-model")).toContain("high");
+  const configured = await supervisor.getThread(thread.metadata.id);
+  expect(configured.metadata.config?.modelId).toBe("another-model");
+});
+it("rebinds updated model capabilities before applying reasoning and clamps on a model switch", async () => {
+  const supervisor = await service.supervisor();
+  const thread = await supervisor.createThread();
+  const provider = settings.get("fixture")!;
+  settings.save(
+    {
+      ...provider,
+      modelOverrides: {
+        ...provider.modelOverrides,
+        "test-model": { thinkingLevels: ["off", "low"] },
+        "another-model": { thinkingLevels: ["high"] },
+      },
+    },
+    provider.id,
+  );
+  await service.setThinking(thread.metadata.id, "low");
+  expect(
+    (await supervisor.getThread(thread.metadata.id)).metadata.config
+      ?.thinkingLevel,
+  ).toBe("low");
+  await expect(service.setThinking(thread.metadata.id, "high")).rejects.toThrow(
+    "not supported",
+  );
+  await service.setModel(thread.metadata.id, "fixture", "another-model");
+  expect(
+    (await supervisor.getThread(thread.metadata.id)).metadata.config
+      ?.thinkingLevel,
+  ).toBe("high");
+  expect(service.thinkingLevels("fixture", "another-model")).toEqual(["high"]);
+});
+it("persists Pi's Max level when configured and keeps it out of unsupported models", async () => {
+  const supervisor = await service.supervisor();
+  const thread = await supervisor.createThread();
+  const provider = settings.get("fixture")!;
+  settings.save(
+    {
+      ...provider,
+      modelOverrides: {
+        ...provider.modelOverrides,
+        "test-model": { thinkingLevels: ["off", "high", "max"] },
+      },
+    },
+    provider.id,
+  );
+  expect(service.thinkingLevels("fixture", "test-model")).toContain("max");
+  await service.setThinking(thread.metadata.id, "max");
+  expect(
+    (await supervisor.getThread(thread.metadata.id)).metadata.config
+      ?.thinkingLevel,
+  ).toBe("max");
+  await service.setModel(thread.metadata.id, "fixture", "another-model");
+  expect(
+    (await supervisor.getThread(thread.metadata.id)).metadata.config
+      ?.thinkingLevel,
+  ).toBe("off");
+  await expect(service.setThinking(thread.metadata.id, "max")).rejects.toThrow(
+    "not supported",
+  );
 });
 it("imports old browser histories idempotently into native sessions", async () => {
   const legacy = {
@@ -394,6 +470,7 @@ it("cancels pending approvals before cascading project deletion and preserves so
   const registry = new WorkspaceRegistry(
     new SettingsStore(join(directory, "providers.json")),
     {
+      globalSkillRoot: join(directory, "home-agents"),
       dataDir: join(directory, "project-data"),
       workspace: join(directory, "default-project"),
     },
