@@ -1,0 +1,81 @@
+diff --git a/dist/core/agent-session.js b/dist/core/agent-session.js
+index fc41fb4139ac8177a5d27704e057830ebdb55764..169973b393785ae41cab361183ce0eaf0182ad54 100644
+--- a/dist/core/agent-session.js
++++ b/dist/core/agent-session.js
+@@ -1578,6 +1578,7 @@ export class AgentSession {
+             messages.push({
+                 role: "user",
+                 content: [{ type: "text", text }, ...normalized.images],
++                originalText: trigger.originalText,
+                 timestamp: Date.now(),
+             });
+         }
+@@ -1760,10 +1761,10 @@ export class AgentSession {
+                 throw new Error("Agent is already processing. Specify streamingBehavior ('steer' or 'followUp') to queue the message.");
+             }
+             if (options.streamingBehavior === "followUp") {
+-                await this._queueFollowUp(expandedText, currentImages);
++                await this._queueFollowUp(expandedText, currentImages, text);
+             }
+             else {
+-                await this._queueSteer(expandedText, currentImages);
++                await this._queueSteer(expandedText, currentImages, text);
+             }
+             preflightResult?.("queued");
+             return undefined;
+@@ -1783,7 +1784,7 @@ export class AgentSession {
+             }
+             throw new Error(formatNoApiKeyFoundMessage(this.model.provider));
+         }
+-        return { messageType: "user", prompt: expandedText, images: currentImages };
++        return { messageType: "user", prompt: expandedText, images: currentImages, originalText: text };
+     }
+     /**
+      * Try to execute an extension command. Returns true if command was found and executed.
+@@ -1852,10 +1853,10 @@ export class AgentSession {
+         let expandedText = this._expandSkillCommand(processedInput.text);
+         expandedText = expandPromptTemplate(expandedText, [...this.promptTemplates]);
+         if (behavior === "steer") {
+-            await this._queueSteer(expandedText, processedInput.images);
++            await this._queueSteer(expandedText, processedInput.images, text);
+         }
+         else {
+-            await this._queueFollowUp(expandedText, processedInput.images);
++            await this._queueFollowUp(expandedText, processedInput.images, text);
+         }
+         return "queued";
+     }
+@@ -1885,14 +1886,14 @@ export class AgentSession {
+     /**
+      * Internal: Queue a steering message (already expanded, no extension command check).
+      */
+-    async _queueSteer(text, images) {
++    async _queueSteer(text, images, originalText) {
+         this._steeringMessages.push(text);
+         this._emitQueueUpdate();
+         const content = [{ type: "text", text }];
+         if (images) {
+             content.push(...images);
+         }
+-        const message = { role: "user", content, timestamp: Date.now() };
++        const message = { role: "user", content, originalText, timestamp: Date.now() };
+         if (images?.length)
+             this._queuedMessagesWithImages.add(message);
+         this.agent.steer(message);
+@@ -1900,14 +1901,14 @@ export class AgentSession {
+     /**
+      * Internal: Queue a follow-up message (already expanded, no extension command check).
+      */
+-    async _queueFollowUp(text, images) {
++    async _queueFollowUp(text, images, originalText) {
+         this._followUpMessages.push(text);
+         this._emitQueueUpdate();
+         const content = [{ type: "text", text }];
+         if (images) {
+             content.push(...images);
+         }
+-        const message = { role: "user", content, timestamp: Date.now() };
++        const message = { role: "user", content, originalText, timestamp: Date.now() };
+         if (images?.length)
+             this._queuedMessagesWithImages.add(message);
+         this.agent.followUp(message);

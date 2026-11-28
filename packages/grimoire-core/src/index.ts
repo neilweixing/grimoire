@@ -1,5 +1,13 @@
 import { z } from "zod";
 
+export const appearanceSchema = z.enum(["light", "dark"]);
+export const userPreferencesSchema = z.object({
+  appearance: appearanceSchema,
+  language: z.enum(["zh", "en"]),
+  ignoreCertificateErrors: z.boolean(),
+});
+export type UserPreferences = z.infer<typeof userPreferencesSchema>;
+
 export const permissionModeSchema = z.enum(["read-only", "workspace", "full"]);
 export type PermissionMode = z.infer<typeof permissionModeSchema>;
 export type ExecutionSettings = {
@@ -32,6 +40,15 @@ export type IntegrationSnapshot = {
   packages: { source: string; enabled: boolean }[];
   pendingReloads: number;
 };
+export type PluginUpdate = {
+  source: string;
+  displayName: string;
+  type: "npm" | "git";
+  scope: "user" | "project";
+};
+export type PluginLookup =
+  | { found: false }
+  | { found: true; source: string; name: string; version: string };
 export type PluginCatalog = {
   packages: {
     name: string;
@@ -42,22 +59,80 @@ export type PluginCatalog = {
   total: number;
 };
 
+export const thinkingLevelSchema = z.enum([
+  "off",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+]);
+export type ThinkingLevel = z.infer<typeof thinkingLevelSchema>;
+export const modelCapabilitiesSchema = z.object({
+  contextWindow: z.number().int().positive().max(10_000_000).optional(),
+  maxTokens: z.number().int().positive().max(10_000_000).optional(),
+  input: z
+    .array(z.enum(["text", "image"]))
+    .min(1)
+    .max(2)
+    .optional(),
+  thinkingLevels: z.array(thinkingLevelSchema).min(1).max(7).optional(),
+});
+export type ModelCapabilities = z.infer<typeof modelCapabilitiesSchema>;
+
 export const providerKindSchema = z.enum([
   "openai",
   "anthropic",
   "openai-compatible",
+  "native",
 ]);
 export type ProviderKind = z.infer<typeof providerKindSchema>;
 
-export const providerInputSchema = z.object({
-  name: z.string().trim().min(1).max(80),
-  kind: providerKindSchema,
-  model: z.string().trim().min(1).max(200),
-  baseUrl: z.union([z.url({ protocol: /^https?$/ }), z.literal("")]).optional(),
-  apiKey: z.string().trim().max(4096).optional(),
-  contextWindow: z.number().int().positive().max(10_000_000).optional(),
-});
+export const providerInputSchema = z
+  .object({
+    name: z.string().trim().min(1).max(80),
+    kind: providerKindSchema,
+    nativeProvider: z.string().trim().min(1).max(80).optional(),
+    model: z.string().trim().min(1).max(200),
+    models: z
+      .array(z.string().trim().min(1).max(200))
+      .min(1)
+      .max(200)
+      .optional(),
+    baseUrl: z
+      .union([z.url({ protocol: /^https?$/ }), z.literal("")])
+      .optional(),
+    apiKey: z.string().trim().max(4096).optional(),
+    contextWindow: z.number().int().positive().max(10_000_000).optional(),
+    modelOverrides: z
+      .record(z.string().min(1).max(200), modelCapabilitiesSchema)
+      .optional(),
+    modelMetadata: z
+      .record(z.string().min(1).max(200), modelCapabilitiesSchema)
+      .optional(),
+  })
+  .refine(
+    (value) =>
+      !value.models ||
+      (value.models.includes(value.model) &&
+        new Set(value.models).size === value.models.length),
+    {
+      message:
+        "Configured models must be unique and include the default model.",
+      path: ["models"],
+    },
+  )
+  .refine((value) => value.kind !== "native" || Boolean(value.nativeProvider), {
+    message: "A native provider is required.",
+    path: ["nativeProvider"],
+  });
 export type ProviderInput = z.infer<typeof providerInputSchema>;
+export function configuredModelIds(
+  provider: Pick<ProviderInput, "model" | "models">,
+): string[] {
+  return provider.models ?? [provider.model];
+}
 export type PublicProvider = Omit<ProviderInput, "apiKey"> & {
   id: string;
   hasApiKey: boolean;
@@ -72,8 +147,41 @@ export type ProviderModel = {
   id: string;
   name: string;
   thinkingLevels: ThinkingLevel[];
+  contextWindow?: number;
+  maxTokens?: number;
+  input?: ("text" | "image")[];
+  source?: "sdk" | "remote" | "custom";
+};
+export type ProviderCatalog = {
+  providers: {
+    id: string;
+    name: string;
+    baseUrl: string;
+    models: ProviderModel[];
+  }[];
 };
 export type ProviderModelList = { models: ProviderModel[] };
+export type ModelProbeResult = {
+  model: string;
+  results: {
+    level: ThinkingLevel;
+    status: "accepted" | "rejected" | "inconclusive";
+    reason:
+      | "accepted"
+      | "invalidParameter"
+      | "authentication"
+      | "rateLimited"
+      | "timeout"
+      | "requestFailed"
+      | "noEffortParameter"
+      | "notRun";
+    parameter?: string;
+    httpStatus?: number;
+    outputTokens: number | null;
+    reasoningTokens: number | null;
+    durationMs: number;
+  }[];
+};
 export const modelSelectionSchema = z.object({
   providerId: z.string().min(1),
   model: z.string().trim().min(1).max(200),
@@ -124,16 +232,6 @@ export const chatMessageSchema = z.object({
   metrics: runMetricsSchema.optional(),
 });
 export type ChatMessage = z.infer<typeof chatMessageSchema>;
-export const thinkingLevelSchema = z.enum([
-  "off",
-  "minimal",
-  "low",
-  "medium",
-  "high",
-  "xhigh",
-  "max",
-]);
-export type ThinkingLevel = z.infer<typeof thinkingLevelSchema>;
 export const chatRequestSchema = z
   .object({
     messages: z.array(chatMessageSchema).min(1).max(200),
@@ -207,3 +305,38 @@ export async function* readAgentStream(
 }
 
 export { summarizeConversation } from "./metrics.js";
+
+export const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
+export const localAttachmentSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().min(1).max(512),
+  path: z.string().min(1).max(8192),
+  contentType: z.string().max(200),
+  size: z.number().int().nonnegative().max(MAX_ATTACHMENT_BYTES),
+});
+export type LocalAttachment = z.infer<typeof localAttachmentSchema>;
+
+export function attachmentReference(file: LocalAttachment): string {
+  const json = JSON.stringify(file)
+    .replaceAll("<", "\\u003c")
+    .replaceAll(">", "\\u003e");
+  return `<grimoire-file>${json}</grimoire-file>`;
+}
+
+export function splitAttachmentReferences(input: string) {
+  const files: LocalAttachment[] = [];
+  const text = input.replace(
+    /(?:\n\n)?<grimoire-file>([^\n]*?)<\/grimoire-file>/g,
+    (match, json) => {
+      try {
+        const file = localAttachmentSchema.safeParse(JSON.parse(json));
+        if (file.success) {
+          files.push(file.data);
+          return "";
+        }
+      } catch {}
+      return match;
+    },
+  );
+  return { text, files };
+}

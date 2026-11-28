@@ -4,9 +4,12 @@ import { expect, it } from "vitest";
 import { createGrimoireAgent } from "../apps/grimoire-agent/src/agent";
 import { RunMetricsCollector } from "../apps/grimoire-agent/src/metrics";
 
-it.each(["off", "low", "medium", "high"] as const)(
+it.each(["off", "low", "medium", "high", "native"] as const)(
   "passes %s thinking depth through Pi's OpenAI-compatible adapter",
-  async (thinkingLevel) => {
+  async (selection) => {
+    const native = selection === "native";
+    const thinkingLevel = native ? "high" : selection;
+    const model = native ? "deepseek-flash" : "test-model";
     let request: {
       path?: string;
       authorization?: string;
@@ -48,22 +51,36 @@ it.each(["off", "low", "medium", "high"] as const)(
         {
           id: "local-test",
           name: "Local test",
-          kind: "openai-compatible",
-          model: "test-model",
+          kind: native ? "native" : "openai-compatible",
+          nativeProvider: native ? "deepseek" : undefined,
+          model,
           baseUrl: `http://127.0.0.1:${port}/v1`,
           apiKey: "fixture-key",
+          modelOverrides: {
+            [model]: {
+              thinkingLevels: ["off", "low", "medium", "high"],
+              contextWindow: 8192,
+              maxTokens: 1024,
+              input: ["text", "image"],
+            },
+          },
         },
         "en",
         thinkingLevel,
         (event) => metrics.observeProviderEvent(event),
       );
+      expect(agent.state.model).toMatchObject({
+        contextWindow: 8192,
+        maxTokens: 1024,
+        input: ["text", "image"],
+      });
       agent.subscribe((event) => {
         metrics.observe(event);
       });
       await agent.prompt("Hello");
       expect(request.path).toBe("/v1/chat/completions");
       expect(request.authorization).toBe("Bearer fixture-key");
-      expect(request.body?.model).toBe("test-model");
+      expect(request.body?.model).toBe(model);
       expect(request.body?.stream).toBe(true);
       expect(request.body?.reasoning_effort).toBe(
         thinkingLevel === "off" ? undefined : thinkingLevel,

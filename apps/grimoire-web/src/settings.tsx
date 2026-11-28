@@ -34,6 +34,7 @@ const defaults: Record<ProviderKind, { model: string; baseUrl: string }> = {
     baseUrl: "https://api.anthropic.com",
   },
   "openai-compatible": { model: "", baseUrl: "" },
+  native: { model: "", baseUrl: "" },
 };
 const blank: ProviderInput = {
   name: "",

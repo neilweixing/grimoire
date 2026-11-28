@@ -3,6 +3,7 @@ import { bodyLimit } from "hono/body-limit";
 import { streamSSE } from "hono/streaming";
 import {
   chatRequestSchema,
+  configuredModelIds,
   providerInputSchema,
   modelSelectionSchema,
   type AgentStreamEvent,
@@ -13,9 +14,16 @@ import {
   modelThinkingLevels,
   toPiMessages,
 } from "./agent.js";
+import {
+  knownModel,
+  providerCatalog,
+  describeModel,
+  selectProviderModel,
+} from "./provider-catalog.js";
 import { SettingsStore } from "./settings.js";
 import { errorMessage } from "./errors.js";
 import { RunMetricsCollector } from "./metrics.js";
+import { probeModel } from "./model-probe.js";
 import { listProviderModels } from "./models.js";
 import { type PiServiceOptions } from "./pi-service.js";
 import { WorkspaceRegistry } from "./workspaces.js";
@@ -32,6 +40,7 @@ export function createApp(
   } = {},
 ) {
   const app = new Hono();
+  const probes = new Set<string>();
   let registry: WorkspaceRegistry | undefined;
   const workspaces = () =>
     (registry ??= new WorkspaceRegistry(settings, options));
@@ -176,18 +185,29 @@ export function createApp(
     c.json({ status: "ok", name: "grimoire-agent" }),
   );
   app.get("/api/providers", (c) => c.json(publicSettings()));
-  app.get("/api/providers/:id/models", async (c) => {
-    const provider = settings.get(c.req.param("id"));
-    if (!provider)
-      return c.json(
-        {
-          error: errorMessage(
-            c.req.header("accept-language"),
-            "missingProvider",
-          ),
-        },
-        404,
-      );
+  app.get("/api/providers/catalog", (c) => c.json(providerCatalog()));
+  app.post("/api/providers/discover", async (c) => {
+    const body = await c.req.json();
+    const input = providerInputSchema.parse({
+      ...body.provider,
+      name: body.provider?.name || "Provider",
+      model: body.provider?.model || "__discovery__",
+    });
+    const previous =
+      typeof body.id === "string" ? settings.get(body.id) : undefined;
+    // Reuse a stored secret only for the same connection. Editing an endpoint
+    // must never send an existing secret to a new host implicitly.
+    const sameConnection =
+      previous &&
+      previous.kind === input.kind &&
+      previous.nativeProvider === input.nativeProvider &&
+      (previous.baseUrl || "") === (input.baseUrl || "");
+    const provider = {
+      ...input,
+      id: "preview",
+      apiKey: input.apiKey || (sameConnection ? previous.apiKey : undefined),
+      modelOverrides: undefined,
+    };
     try {
       return c.json({ models: await listProviderModels(provider) });
     } catch {
@@ -201,6 +221,59 @@ export function createApp(
         502,
       );
     }
+  });
+  app.post("/api/providers/probe", async (c) => {
+    const body = await c.req.json();
+    const input = providerInputSchema.parse(body.provider);
+    if (input.kind === "native" && !knownModel(input))
+      return c.json({ error: "Unknown native model." }, 400);
+    const previous =
+      typeof body.id === "string" ? settings.get(body.id) : undefined;
+    const sameConnection =
+      previous &&
+      previous.kind === input.kind &&
+      previous.nativeProvider === input.nativeProvider &&
+      (previous.baseUrl || "") === (input.baseUrl || "");
+    const key = `${input.kind}:${input.nativeProvider}:${input.baseUrl}:${input.model}`;
+    if (probes.has(key))
+      return c.json(
+        { error: "A test is already running for this model." },
+        409,
+      );
+    probes.add(key);
+    try {
+      return c.json(
+        await probeModel(
+          {
+            ...input,
+            id: "probe",
+            apiKey:
+              input.apiKey || (sameConnection ? previous.apiKey : undefined),
+          },
+          c.req.raw.signal,
+        ),
+      );
+    } finally {
+      probes.delete(key);
+    }
+  });
+  app.get("/api/providers/:id/models", async (c) => {
+    const provider = settings.get(c.req.param("id"));
+    if (!provider)
+      return c.json(
+        {
+          error: errorMessage(
+            c.req.header("accept-language"),
+            "missingProvider",
+          ),
+        },
+        404,
+      );
+    return c.json({
+      models: configuredModelIds(provider).map((id) =>
+        describeModel(selectProviderModel(provider, id)),
+      ),
+    });
   });
   app.put("/api/providers/selection", async (c) => {
     const parsed = modelSelectionSchema.safeParse(await c.req.json());
@@ -227,12 +300,24 @@ export function createApp(
         },
         404,
       );
+    const selected = settings.get(parsed.data.providerId);
+    if (selected && !configuredModelIds(selected).includes(parsed.data.model))
+      return c.json(
+        { error: "Model is not configured for this provider." },
+        400,
+      );
     settings.selectModel(parsed.data.providerId, parsed.data.model);
     return c.json(publicSettings());
   });
   app.post("/api/providers", async (c) => {
     const parsed = providerInputSchema.safeParse(await c.req.json());
-    if (!parsed.success)
+    if (
+      !parsed.success ||
+      (parsed.data.kind === "native" &&
+        configuredModelIds(parsed.data).some(
+          (id) => !knownModel(selectProviderModel(parsed.data, id)),
+        ))
+    )
       return c.json(
         {
           error: errorMessage(
@@ -277,7 +362,13 @@ export function createApp(
         404,
       );
     const parsed = providerInputSchema.safeParse(await c.req.json());
-    if (!parsed.success)
+    if (
+      !parsed.success ||
+      (parsed.data.kind === "native" &&
+        configuredModelIds(parsed.data).some(
+          (id) => !knownModel(selectProviderModel(parsed.data, id)),
+        ))
+    )
       return c.json(
         {
           error: errorMessage(
