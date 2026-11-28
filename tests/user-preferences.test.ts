@@ -145,3 +145,24 @@ it("preserves all fields across concurrent partial API requests", async () => {
     await app.dispose();
   }
 });
+
+it("imports flat preferences into config while retaining the original", () => {
+  writeFileSync(
+    path,
+    JSON.stringify({
+      language: "en",
+      appearance: "dark",
+      ignoreCertificateErrors: true,
+    }),
+  );
+  const moved = new UserPreferencesStore(join(root, "config/preferences.json"));
+  expect(moved.get()).toMatchObject({
+    language: "en",
+    appearance: "dark",
+    ignoreCertificateErrors: true,
+  });
+  expect(existsSync(path)).toBe(true);
+  moved.update({ language: "zh" });
+  expect(JSON.parse(readFileSync(path, "utf8")).language).toBe("en");
+  expect(moved.get().language).toBe("zh");
+});

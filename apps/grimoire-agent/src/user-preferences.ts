@@ -6,12 +6,12 @@ import {
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { userPreferencesSchema, type UserPreferences } from "@grimoire/core";
 
 export class UserPreferencesStore {
   constructor(
-    readonly path = join(homedir(), ".grimoire", "preferences.json"),
+    readonly path = join(homedir(), ".grimoire", "config", "preferences.json"),
   ) {}
   private read(): Record<string, unknown> {
     try {
@@ -21,7 +21,19 @@ export class UserPreferencesStore {
       return value;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      const legacy = join(dirname(this.path), "browser-settings.json");
+      if (basename(dirname(this.path)) === "config") {
+        const previous = join(dirname(dirname(this.path)), "preferences.json");
+        if (existsSync(previous)) {
+          const value = JSON.parse(readFileSync(previous, "utf8"));
+          if (!value || typeof value !== "object" || Array.isArray(value))
+            throw new Error("Invalid legacy user preferences file.");
+          this.write(value);
+          return value;
+        }
+      }
+      let legacy = join(dirname(this.path), "browser-settings.json");
+      if (!existsSync(legacy) && basename(dirname(this.path)) === "config")
+        legacy = join(dirname(dirname(this.path)), "browser-settings.json");
       if (!existsSync(legacy)) return {};
       try {
         const value = JSON.parse(readFileSync(legacy, "utf8"));

@@ -20,7 +20,8 @@ function browserUrl(value) {
 
 function attachEmbeddedBrowser(window, origin, options = {}) {
   const preferences = new BrowserPreferences(
-    join(app.getPath("userData"), "preferences.json"),
+    options.preferencesPath ||
+      join(app.getPath("userData"), "preferences.json"),
   );
   let requestedVisible = false;
   let bounds;

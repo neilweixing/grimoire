@@ -27,13 +27,17 @@ const browserPending = new Map<
   number,
   { resolve(value: unknown): void; reject(error: Error): void }
 >();
-const preferences = new UserPreferencesStore(join(dataDir, "preferences.json"));
+const configDir =
+  process.env.GRIMOIRE_DESKTOP_CONFIG || join(dataDir, "config");
+const preferences = new UserPreferencesStore(
+  join(configDir, "preferences.json"),
+);
 preferences.get();
 const preferencePending = new Map<
   number,
   { resolve(): void; reject(error: Error): void }
 >();
-const app = createApp(new SettingsStore(join(dataDir, "providers.json")), {
+const app = createApp(new SettingsStore(join(configDir, "providers.json")), {
   dataDir: join(dataDir, "pi"),
   preferences,
   onPreferencesChange: (value) => {
