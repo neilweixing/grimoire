@@ -145,7 +145,7 @@ jobs:
           else
             gh release create "$RELEASE_TAG" release-assets/* \
               --repo "$GH_REPO" --verify-tag \
-              --title "Grimoire $RELEASE_TAG" \
+              --title "$RELEASE_TAG" \
               --notes-file "$RUNNER_TEMP/release-notes.md" --draft
           fi
-          gh release edit "$RELEASE_TAG" --repo "$GH_REPO" --notes-file "$RUNNER_TEMP/release-notes.md" --draft=false --latest
+          gh release edit "$RELEASE_TAG" --repo "$GH_REPO" --title "$RELEASE_TAG" --notes-file "$RUNNER_TEMP/release-notes.md" --draft=false --latest
