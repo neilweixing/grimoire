@@ -274,13 +274,13 @@ export class PiService {
     for (const tool of definitions) {
       if (!["bash", "powershell"].includes(tool.name)) continue;
       tool.description +=
-        " Commands run in an OS sandbox. In read-only mode commands cannot change project files. Set networkDomains to the domains this command needs, or writePaths to request writes outside the project. Approval applies only to this call.";
+        " Commands run in an OS sandbox. In read-only mode commands cannot change project files. In Ask for approval mode, networking is allowed without approval or networkDomains. Use writePaths to request writes outside the project. Approval applies only to this call.";
       tool.parameters = Type.Object({
         ...(tool.parameters as { properties: Record<string, any> }).properties,
         networkDomains: Type.Optional(
           Type.Array(Type.String(), {
             description:
-              "Domains this command needs to contact, such as registry.npmjs.org or *.github.com. Requests approval outside full-access mode; only these destinations are allowed for this call.",
+              "Optional network destinations for this command, such as registry.npmjs.org or *.github.com. Networking requires no approval in Ask for approval or Full access modes; read-only mode blocks command networking.",
           }),
         ),
         writePaths: Type.Optional(

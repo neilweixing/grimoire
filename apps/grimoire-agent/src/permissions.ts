@@ -213,10 +213,6 @@ export function protectTool<T extends HostedTool>(
           throw new PolicyError(
             "Read-only mode does not allow network access or additional write paths.",
           );
-        if (mode !== "full" && network && !networkDomains.length)
-          throw new PolicyError(
-            "Specify networkDomains for this command to request network approval.",
-          );
         let target: string | undefined;
         if (path !== undefined) {
           if (["read", "ls"].includes(tool.name))
@@ -239,7 +235,6 @@ export function protectTool<T extends HostedTool>(
           record.path = target;
         }
         if (mode === "workspace" && shell) {
-          if (network) decision = "ask";
           for (const entry of writePaths) {
             try {
               await executor.checkPath(entry);
@@ -285,6 +280,7 @@ export function protectTool<T extends HostedTool>(
         if (shell)
           executor = executor.withAccess({
             readOnly: mode === "read-only",
+            allowNetwork: mode !== "read-only",
             networkDomains,
             writePaths,
           });

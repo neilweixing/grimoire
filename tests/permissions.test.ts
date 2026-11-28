@@ -8,6 +8,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { createServer } from "node:http";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { NativeSandboxExecutor } from "../apps/grimoire-agent/src/sandbox";
 import {
@@ -196,7 +197,7 @@ function setupShell(confirm: () => Promise<boolean>) {
     } as never);
   return { run, execute };
 }
-it("runs ordinary sandbox commands without asking, but requests permission for network access", async () => {
+it("runs sandbox commands and declared or undeclared networking without approval", async () => {
   if (!executor.shellAvailable()) return;
   const confirm = vi.fn(async () => true);
   const { run } = setupShell(confirm);
@@ -204,21 +205,19 @@ it("runs ordinary sandbox commands without asking, but requests permission for n
   expect(confirm).not.toHaveBeenCalled();
   expect(readFileSync(join(executor.root, "local.txt"), "utf8")).toBe("local");
   await run({ command: "printf approved", networkDomains: ["example.com"] });
-  expect(confirm).toHaveBeenCalledTimes(1);
+  await run({ command: "printf legacy-network", network: true });
+  expect(confirm).not.toHaveBeenCalled();
 }, 20000);
-it("never executes a denied network request or a read-only network escalation", async () => {
+it("never executes a read-only network escalation", async () => {
   if (!executor.shellAvailable()) return;
   const confirm = vi.fn(async () => false);
   const { run, execute } = setupShell(confirm);
-  await expect(
-    run({ command: "printf should-not-run", networkDomains: ["example.com"] }),
-  ).rejects.toThrow("Approval denied");
-  expect(execute).not.toHaveBeenCalled();
   policy.setMode("thread", "read-only");
   await expect(
     run({ command: "printf should-not-run", networkDomains: ["example.com"] }),
   ).rejects.toThrow("Read-only");
-  expect(confirm).toHaveBeenCalledTimes(1);
+  expect(execute).not.toHaveBeenCalled();
+  expect(confirm).not.toHaveBeenCalled();
 });
 it("grants command writes outside the project only after approval", async () => {
   if (!executor.shellAvailable()) return;
@@ -285,3 +284,46 @@ it
     expect(execute).not.toHaveBeenCalled();
   },
 );
+
+it("permits real HTTP requests without network declarations and keeps concurrent read-only commands isolated", async () => {
+  if (!executor.shellAvailable()) return;
+  let requests = 0;
+  const server = createServer((_request, response) => {
+    requests++;
+    response.end("network-ok");
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const port = (server.address() as { port: number }).port;
+    const command = `curl --noproxy '' --fail --silent --show-error --max-time 5 http://127.0.0.1:${port}/`;
+    const confirm = vi.fn(async () => false);
+    const { run } = setupShell(confirm);
+    const readOnly = executor.withAccess({ readOnly: true });
+    let deniedText = "";
+    const [allowed, denied] = await Promise.all([
+      run({ command }),
+      readOnly.exec(command, readOnly.root, {
+        onData: (data) => {
+          deniedText += data;
+        },
+      }),
+    ]);
+    expect(allowed.details.exitCode).toBe(0);
+    expect(allowed.content[0].text).toContain("network-ok");
+    expect(denied.exitCode, deniedText).not.toBe(0);
+    expect(requests).toBe(1);
+    expect(confirm).not.toHaveBeenCalled();
+    const outside = join(directory, "outside-network.txt");
+    await expect(
+      run({
+        command: `printf blocked > '${outside}'`,
+        network: true,
+        writePaths: [outside],
+      }),
+    ).rejects.toThrow("Approval denied");
+    expect(existsSync(outside)).toBe(false);
+    expect(confirm).toHaveBeenCalledOnce();
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+}, 20000);

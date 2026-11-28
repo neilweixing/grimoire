@@ -182,6 +182,7 @@ settings:
   excludeLinksFromLockfile: false
 
 patchedDependencies:
+  '@anthropic-ai/sandbox-runtime@0.0.83': bdb60515dae7c2b36b5b4f7b8a966992a38cc0ffcc5b2e1449a35ea0df4c5e5a
   '@assistant-ui/react-pi@0.0.35': 58a14f4930ff2b4f33499bc90f189b597bfb4713b2df2a283fbb5ca6de4a2bcc
   '@earendil-works/pi-coding-agent@1.6.1': 7019258b5940ebfc557fa1f8fbc50b0bd58427fc23c2d3e96cde05b6909d276e
 
@@ -206,7 +207,7 @@ importers:
     dependencies:
       '@anthropic-ai/sandbox-runtime':
         specifier: 0.0.83
-        version: 0.0.83
+        version: 0.0.83(patch_hash=bdb60515dae7c2b36b5b4f7b8a966992a38cc0ffcc5b2e1449a35ea0df4c5e5a)
       '@assistant-ui/react-pi':
         specifier: 0.0.35
         version: 0.0.35(patch_hash=58a14f4930ff2b4f33499bc90f189b597bfb4713b2df2a283fbb5ca6de4a2bcc)(@assistant-ui/react@0.15.38(@types/react-dom@19.3.0(@types/react@19.3.2))(@types/react@19.3.2)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(@assistant-ui/store@0.3.25(@assistant-ui/tap@0.9.27(@types/react@19.3.2)(react@19.3.1))(@types/react@19.3.2)(react@19.3.1))(@assistant-ui/tap@0.9.27(@types/react@19.3.2)(react@19.3.1))(@earendil-works/pi-coding-agent@1.6.1(patch_hash=7019258b5940ebfc557fa1f8fbc50b0bd58427fc23c2d3e96cde05b6909d276e)(@smithy/signature-v4@5.7.5)(google-auth-library@10.9.1(supports-color@7.2.0))(supports-color@7.2.0)(ws@8.23.0)(zod@4.6.7))(@types/react@19.3.2)(react@19.3.1)
@@ -4251,7 +4252,7 @@ packages:
 
 snapshots:
 
-  '@anthropic-ai/sandbox-runtime@0.0.83':
+  '@anthropic-ai/sandbox-runtime@0.0.83(patch_hash=bdb60515dae7c2b36b5b4f7b8a966992a38cc0ffcc5b2e1449a35ea0df4c5e5a)':
     dependencies:
       '@pondwader/socks5-server': 1.0.10
       commander: 12.1.0

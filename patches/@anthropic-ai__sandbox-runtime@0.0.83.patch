@@ -1,0 +1,48 @@
+diff --git a/dist/sandbox/sandbox-manager.d.ts b/dist/sandbox/sandbox-manager.d.ts
+index 0754e96ebb00b39ade0387a078ba8f36df12f3dc..2e92a18457dcf8a4e39d10e222c8f474091ff829 100644
+--- a/dist/sandbox/sandbox-manager.d.ts
++++ b/dist/sandbox/sandbox-manager.d.ts
+@@ -223,6 +223,8 @@ export interface ISandboxManager {
+      */
+     registerCommandNetworkLists(commandId: string, lists: {
+         allowedDomains?: string[];
++        /** Allow any destination for this invocation, after global deny rules. */
++        allowAllDomains?: boolean;
+     }): void;
+     /**
+      * Remove the list registered for `commandId`. A no-op for an id that has
+diff --git a/dist/sandbox/sandbox-manager.js b/dist/sandbox/sandbox-manager.js
+index 447428a7413eec88c0712197d6b5fb27903ee352..999981ac3c6e53305b5c0daed45283169ea8e3ca 100644
+--- a/dist/sandbox/sandbox-manager.js
++++ b/dist/sandbox/sandbox-manager.js
+@@ -404,6 +404,9 @@ function registerCommandNetworkLists(commandId, lists) {
+             `random (at least 128 bits, e.g. 16 random bytes as base64url) and ` +
+             `never derived from the command text, a counter or the time.`);
+     }
++    if (lists?.allowAllDomains !== undefined && typeof lists.allowAllDomains !== 'boolean') {
++        throw new Error('registerCommandNetworkLists: allowAllDomains must be a boolean.');
++    }
+     const allowedDomains = lists?.allowedDomains ?? [];
+     if (!Array.isArray(allowedDomains)) {
+         throw new Error('registerCommandNetworkLists: allowedDomains must be an array of strings.');
+@@ -416,7 +419,7 @@ function registerCommandNetworkLists(commandId, lists) {
+     }
+     commandNetworkListsByKey.set(key, 
+     // Copied, so the caller cannot change what was validated.
+-    { allowedDomains: [...allowedDomains] });
++    { allowedDomains: [...allowedDomains], allowAllDomains: lists?.allowAllDomains === true });
+     // An external HTTP proxy is handed no username, so no connection names an id.
+     if (config?.network.httpProxyPort !== undefined) {
+         logForDebugging('registerCommandNetworkLists: network.httpProxyPort is set (an ' +
+@@ -562,6 +565,11 @@ async function filterNetworkRequest(port, host, sandboxAskCallback, encodedComma
+     const perCommand = encodedCommand
+         ? commandNetworkListsByKey.get(decodeSandboxedCommand(encodedCommand))
+         : undefined;
++    // An embedder may allow networking for one invocation without changing
++    // the global policy or another command's default-deny behavior.
++    if (perCommand?.allowAllDomains === true) {
++        return true;
++    }
+     for (const allowedDomain of perCommand?.allowedDomains ?? []) {
+         if (matchesDomainPatternWithPort(canonicalHost, port, allowedDomain)) {
+             logForDebugging(`Allowed by per-command rule: ${host}:${port}`);
