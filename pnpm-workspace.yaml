@@ -15,5 +15,6 @@ allowBuilds:
   protobufjs: false
 
 patchedDependencies:
+  "@anthropic-ai/sandbox-runtime@0.0.83": patches/@anthropic-ai__sandbox-runtime@0.0.83.patch
   "@assistant-ui/react-pi@0.0.35": patches/@assistant-ui__react-pi@0.0.35.patch
   "@earendil-works/pi-coding-agent@1.6.1": patches/@earendil-works__pi-coding-agent@1.6.1.patch

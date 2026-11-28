@@ -218,7 +218,7 @@ const en = {
   permissionReadOnlyHint:
     "Read files and run read-only commands in the sandbox. Project writes and command networking are blocked. Built-in browser operations retain their no-approval behavior.",
   permissionWorkspaceHint:
-    "Default mode. Project changes and sandboxed commands run directly. Editing outside the project, command networking, and external tools require approval. Built-in browser operations do not.",
+    "Default mode. Project changes, sandboxed commands, and network requests run without approval. Editing outside the project and external tools require approval. Built-in browser operations do not.",
   permissionFullHint:
     "Access local files and the internet without application sandbox restrictions, within the operating-system account permissions.",
   permissionFullConfirm:
@@ -612,7 +612,7 @@ const zh: Record<TranslationKey, string> = {
   permissionReadOnlyHint:
     "只读模式，允许在沙箱内执行只读命令；禁止修改文件和命令联网。内置浏览器操作仍无需审批。",
   permissionWorkspaceHint:
-    "默认模式。项目内修改和沙箱命令直接执行；编辑项目外文件、命令联网和外部工具需批准。内置浏览器操作无需审批。",
+    "默认模式。项目内修改、沙箱命令和网络请求无需审批；编辑项目外文件和使用外部工具需批准。内置浏览器操作无需审批。",
   permissionFullHint:
     "可访问互联网和本地文件，不受应用沙箱限制，仍受操作系统账号权限约束。",
   permissionFullConfirm:

@@ -24,6 +24,7 @@ import { PolicyError } from "./permissions.js";
 
 export type SandboxAccess = {
   readOnly?: boolean;
+  allowNetwork?: boolean;
   networkDomains?: string[];
   writePaths?: string[];
 };
@@ -254,11 +255,13 @@ export class NativeSandboxExecutor implements SandboxExecutor {
         { commandId, commandText: command },
       );
       if (
-        this.accessScope.networkDomains?.length &&
+        (this.accessScope.allowNetwork ||
+          this.accessScope.networkDomains?.length) &&
         !this.accessScope.readOnly
       ) {
         SandboxManager.registerCommandNetworkLists(commandId, {
           allowedDomains: this.accessScope.networkDomains,
+          allowAllDomains: this.accessScope.allowNetwork === true,
         });
         networkRegistered = true;
       }
@@ -359,7 +362,9 @@ export class NativeSandboxExecutor implements SandboxExecutor {
             )
               options.onData(
                 Buffer.from(
-                  "\nGrimoire sandbox: project-external writes and network are blocked unless approved. Retry with explicit writePaths and/or networkDomains to request permission. Never retry a partially completed command without checking its effects.\n",
+                  this.accessScope.readOnly
+                    ? "\nGrimoire sandbox: read-only mode blocks file writes and command networking. Never retry a partially completed command without checking its effects.\n"
+                    : "\nGrimoire sandbox: project-external writes require approval. Retry with explicit writePaths to request permission. Command networking does not require approval. Never retry a partially completed command without checking its effects.\n",
                 ),
               );
           }
