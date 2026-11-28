@@ -1,0 +1,4 @@
+interface:
+  display_name: "Grimoire Release"
+  short_description: "Publish the current version from its Git history"
+  default_prompt: "Use $grimoire-release to publish the current Grimoire version with release notes generated from commits since the previous release."
