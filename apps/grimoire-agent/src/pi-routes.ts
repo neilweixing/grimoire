@@ -1,8 +1,10 @@
 import { Hono, type Context } from "hono";
 import { streamSSE } from "hono/streaming";
+import { bodyLimit } from "hono/body-limit";
 import { z } from "zod";
 import {
   conversationSchema,
+  MAX_ATTACHMENT_BYTES,
   permissionModeSchema,
   thinkingLevelSchema,
 } from "@grimoire/core";
@@ -13,7 +15,10 @@ import { PolicyError } from "./permissions.js";
 const identifier = z.string().uuid();
 const inputSchema = z
   .object({
-    content: z.string().trim().min(1).max(100_000),
+    content: z
+      .string()
+      .max(100_000)
+      .refine((value) => value.trim().length > 0),
     streamingBehavior: z.enum(["followUp", "steer"]).optional(),
   })
   .strict();
@@ -55,6 +60,30 @@ export function piRoutes(resolveService: (workspaceId?: string) => PiService) {
     return client;
   };
   app.get("/skills", async (c) => c.json(await service(c).availableSkills()));
+  app.post(
+    "/attachments",
+    bodyLimit({
+      maxSize: MAX_ATTACHMENT_BYTES + 64 * 1024,
+      onError: (c) =>
+        c.json({ error: "Attachment exceeds the 8 MiB limit." }, 413),
+    }),
+    async (c) => {
+      const form = await c.req.formData();
+      const file = form.get("file");
+      if (!(file instanceof File))
+        return c.json({ error: "Select a local file." }, 400);
+      if (file.size > MAX_ATTACHMENT_BYTES)
+        return c.json({ error: "Attachment exceeds the 8 MiB limit." }, 413);
+      return c.json(
+        await service(c).attachments.save(
+          file.name,
+          new Uint8Array(await file.arrayBuffer()),
+          file.type,
+        ),
+        201,
+      );
+    },
+  );
   app.get("/execution", (c) => c.json(service(c).execution()));
   app.get("/thinking-levels", (c) => {
     const { provider, modelId } = z

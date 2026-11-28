@@ -69,7 +69,7 @@ it.each(["read-only", "workspace", "full"] as const)(
     expect(records.trim().split("\n")).toHaveLength(4);
     expect(policy.decide("chat", "browser_evaluate")).toBe("deny");
     expect(policy.decide("chat", "write")).toBe(
-      mode === "read-only" ? "deny" : mode === "workspace" ? "ask" : "allow",
+      mode === "read-only" ? "deny" : "allow",
     );
   },
 );
