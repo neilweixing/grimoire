@@ -77,6 +77,7 @@ beforeEach(async () => {
   );
   store.activate("fixture");
   service = new PiService(store, {
+    globalSkillRoot: join(directory, "home-agents"),
     dataDir: join(directory, "pi"),
     workspace: join(directory, "workspace"),
   });
@@ -140,17 +141,21 @@ it("uses Pi native MCP tools and resources, preserves approvals, and hashes priv
     { name: "mcp__fixture__write_echo", args: { text: "approved mutation" } },
   ];
   await supervisor.sendMessage(metadata.id, { content: "Use MCP" });
-  const pending = await until(
-    () => supervisor.getThread(metadata.id),
-    (s) => Boolean(s.hostUiRequests?.length),
-  );
-  expect(readFileSync(join(directory, "calls.jsonl"), "utf8")).not.toContain(
-    "approved mutation",
-  );
-  await supervisor.respondToHostUiRequest(metadata.id, {
-    requestId: pending.hostUiRequests![0].id,
-    confirmed: true,
-  });
+  for (let index = 0; index < 3; index++) {
+    const pending = await until(
+      () => supervisor.getThread(metadata.id),
+      (snapshot) => Boolean(snapshot.hostUiRequests?.length),
+    );
+    expect(
+      existsSync(join(directory, "calls.jsonl"))
+        ? readFileSync(join(directory, "calls.jsonl"), "utf8")
+        : "",
+    ).not.toContain("approved mutation");
+    await supervisor.respondToHostUiRequest(metadata.id, {
+      requestId: pending.hostUiRequests![0].id,
+      confirmed: true,
+    });
+  }
   const done = await until(
     () => supervisor.getThread(metadata.id),
     (s) => s.metadata.status !== "running",
@@ -211,9 +216,10 @@ it("loads native Skills, permits their references, and expands /skill commands w
   await expect(service.integrations.readSkill(linked)).rejects.toThrow(
     "Linked",
   );
-  await expect(service.executor.writeFile(path, "overwrite")).rejects.toThrow(
-    "protected",
-  );
+  const originalSkill = readFileSync(path, "utf8");
+  await service.executor.writeFile(path, "overwrite");
+  expect(readFileSync(path, "utf8")).toBe("overwrite");
+  await service.executor.writeFile(path, originalSkill);
   await service.changeIntegrations(() =>
     service.integrations.save({
       ...service.integrations.config(),
@@ -228,6 +234,7 @@ it("loads native Skills, permits their references, and expands /skill commands w
 });
 it("shares configuration across projects and requires explicit trust for installing plugins", async () => {
   const registry = new WorkspaceRegistry(store, {
+    globalSkillRoot: join(directory, "home-agents"),
     dataDir: join(directory, "global"),
     workspace: join(directory, "first"),
   });
@@ -254,7 +261,10 @@ it("shares configuration across projects and requires explicit trust for install
   } finally {
     await registry.dispose();
   }
-  const app = createApp(store, { dataDir: join(directory, "api") });
+  const app = createApp(store, {
+    dataDir: join(directory, "api"),
+    globalSkillRoot: join(directory, "home-agents"),
+  });
   try {
     const response = await app.request("/api/plugins", {
       method: "POST",
@@ -281,7 +291,19 @@ it("installs, loads, disables, enables and removes a plugin through Pi's native 
   expect(installed.tools.map((t) => t.name)).toContain("fixture_plugin_echo");
   expect(installed.skills.map((t) => t.name)).toContain("plugin-fixture");
   actions = [{ name: "fixture_plugin_echo", args: {} }];
-  const done = await run(metadata.id);
+  await supervisor.sendMessage(metadata.id, { content: "Run fixture" });
+  const pending = await until(
+    () => supervisor.getThread(metadata.id),
+    (snapshot) => Boolean(snapshot.hostUiRequests?.length),
+  );
+  await supervisor.respondToHostUiRequest(metadata.id, {
+    requestId: pending.hostUiRequests![0].id,
+    confirmed: true,
+  });
+  const done = await until(
+    () => supervisor.getThread(metadata.id),
+    (snapshot) => snapshot.metadata.status !== "running",
+  );
   expect(JSON.stringify(done.messages)).toContain("Native plugin executed");
   const disabled = await service.changePackage("disable", source);
   expect(disabled.packages).toContainEqual({ source, enabled: false });
@@ -298,6 +320,7 @@ it("rejects invalid MCP and plugin sources and loads only explicitly configured 
   const integrations = new IntegrationStore(
     service.workspace,
     join(directory, "separate-agent"),
+    join(directory, "home-agents"),
   );
   expect(() =>
     integrations.save({
@@ -332,7 +355,10 @@ it("rejects invalid MCP and plugin sources and loads only explicitly configured 
 
 it("starts without a generated workspace while global integrations remain configurable", async () => {
   const dataDir = join(directory, "fresh-app");
-  const app = createApp(store, { dataDir });
+  const app = createApp(store, {
+    dataDir,
+    globalSkillRoot: join(directory, "home-agents"),
+  });
   try {
     expect(await (await app.request("/api/pi/workspaces")).json()).toEqual([]);
     expect(existsSync(join(dataDir, "workspace"))).toBe(false);

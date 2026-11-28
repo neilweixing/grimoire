@@ -1,6 +1,11 @@
 const { mkdirSync, writeFileSync, rmSync } = require("node:fs");
 const { join } = require("node:path");
 const args = process.argv.slice(2);
+const latest = process.env.GRIMOIRE_NPM_FIXTURE_LATEST || "1.0.0";
+const spec = args.find((arg) => arg.startsWith("grimoire-fixture-plugin@"));
+const requested = spec?.slice(spec.lastIndexOf("@") + 1);
+const version =
+  requested && /^\d+\.\d+\.\d+/.test(requested) ? requested : latest;
 const index = args.indexOf("--prefix");
 const root = index >= 0 ? args[index + 1] : process.cwd();
 const target = join(root, "node_modules", "grimoire-fixture-plugin");
@@ -10,7 +15,7 @@ if (args[0] === "install") {
     join(target, "package.json"),
     JSON.stringify({
       name: "grimoire-fixture-plugin",
-      version: "1.0.0",
+      version,
       type: "module",
       keywords: ["pi-package"],
       pi: { extensions: ["extension.mjs"], skills: ["skills"] },
@@ -26,5 +31,5 @@ if (args[0] === "install") {
   );
 } else if (args[0] === "uninstall")
   rmSync(target, { recursive: true, force: true });
-else if (args[0] === "view") console.log('"1.0.0"');
+else if (args[0] === "view") console.log(JSON.stringify(latest));
 else if (args[0] === "root") console.log(join(root, "node_modules"));

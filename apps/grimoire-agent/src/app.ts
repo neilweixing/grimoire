@@ -32,6 +32,7 @@ import { z } from "zod";
 import { piRoutes } from "./pi-routes.js";
 import { nativeFolderPicker } from "./native-folder-picker.js";
 import { searchPlugins } from "./integrations.js";
+import { lookupPlugin } from "./plugin-lookup.js";
 
 export function createApp(
   settings = new SettingsStore(),
@@ -118,6 +119,12 @@ export function createApp(
   app.post("/api/integrations/reload", async (c) =>
     c.json(await workspaces().changeIntegrations(() => {})),
   );
+  app.get("/api/plugins/lookup", async (c) => {
+    const { source } = z
+      .object({ source: z.string().min(1).max(300) })
+      .parse(c.req.query());
+    return c.json(await lookupPlugin(source));
+  });
   app.get("/api/plugins/catalog", async (c) => {
     const { query, offset } = z
       .object({
@@ -127,18 +134,26 @@ export function createApp(
       .parse(c.req.query());
     return c.json(await searchPlugins(query, offset));
   });
+  app.get("/api/plugins/updates", async (c) =>
+    c.json(
+      await workspaces().integrations.checkPackageUpdates(
+        c.req.query("refresh") === "1",
+        c.req.raw.signal,
+      ),
+    ),
+  );
   app.post("/api/plugins", async (c) => {
     const { action, source, trust } = z
       .object({
-        action: z.enum(["install", "remove", "enable", "disable"]),
+        action: z.enum(["install", "remove", "enable", "disable", "update"]),
         source: z.string().max(300),
         trust: z.boolean().optional(),
       })
       .strict()
       .parse(await c.req.json());
-    if ((action === "install" || action === "enable") && trust !== true)
+    if (["install", "enable", "update"].includes(action) && trust !== true)
       throw new PolicyError(
-        "Installing or enabling a plugin requires explicit trust.",
+        "Installing, enabling, or updating a plugin requires explicit trust.",
       );
     return c.json(
       await workspaces().changeIntegrations(

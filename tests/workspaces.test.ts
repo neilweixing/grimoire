@@ -21,6 +21,7 @@ beforeEach(() => {
   registry = new WorkspaceRegistry(
     new SettingsStore(join(directory, "providers.json")),
     {
+      globalSkillRoot: join(directory, "home-agents"),
       dataDir: join(directory, "data"),
       workspace: join(directory, "project-a"),
     },
@@ -100,6 +101,7 @@ it("persists folder registration and rejects missing folders and unknown workspa
   const reopened = new WorkspaceRegistry(
     new SettingsStore(join(directory, "providers.json")),
     {
+      globalSkillRoot: join(directory, "home-agents"),
       dataDir: join(directory, "data"),
       workspace: join(directory, "project-a"),
     },
@@ -117,6 +119,7 @@ it("persists folder registration and rejects missing folders and unknown workspa
 });
 it("registers project folders through the namespaced API", async () => {
   const app = createApp(new SettingsStore(join(directory, "providers.json")), {
+    globalSkillRoot: join(directory, "home-agents"),
     dataDir: join(directory, "data"),
     workspace: join(directory, "project-a"),
   });
@@ -213,6 +216,7 @@ it("deletes project chats and metadata, preserves code and other projects, and s
   const reopened = new WorkspaceRegistry(
     new SettingsStore(join(directory, "providers.json")),
     {
+      globalSkillRoot: join(directory, "home-agents"),
       dataDir: join(directory, "data"),
       workspace: join(directory, "project-a"),
     },

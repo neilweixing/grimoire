@@ -42,7 +42,11 @@ export class WorkspaceRegistry {
     );
     mkdirSync(this.dataDir, { recursive: true, mode: 0o700 });
     const integrationDir = join(this.dataDir, "integrations");
-    this.integrations = new IntegrationStore(integrationDir, integrationDir);
+    this.integrations = new IntegrationStore(
+      integrationDir,
+      integrationDir,
+      options.globalSkillRoot,
+    );
     this.path = join(this.dataDir, "workspaces.json");
     try {
       this.entries = z

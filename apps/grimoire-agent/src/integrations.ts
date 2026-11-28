@@ -18,7 +18,11 @@ import {
   type Skill,
   type ResourceDiagnostic,
 } from "@earendil-works/pi-coding-agent";
-import type { IntegrationConfig, PluginCatalog } from "@grimoire/core";
+import type {
+  IntegrationConfig,
+  PluginCatalog,
+  PluginUpdate,
+} from "@grimoire/core";
 import { PolicyError } from "./permissions.js";
 
 const exposure = z.enum([
@@ -71,7 +75,7 @@ export const integrationConfigSchema = z
         message: "MCP server names must have distinct namespaces.",
       });
   });
-const packageSourceSchema = z
+export const packageSourceSchema = z
   .string()
   .regex(
     /^npm:(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*(?:@[a-zA-Z0-9._^~+-]+)?$/,
@@ -85,22 +89,31 @@ export class IntegrationStore {
   readonly nativeSettings: SettingsManager;
   readonly packages: DefaultPackageManager;
   private skills: Skill[] = [];
+  private updateCache?: { checked: number; results: PluginUpdate[] };
   private readonly skillRoots = new Map<string, string>();
   private diagnostics: ResourceDiagnostic[] = [];
   private readonly preferencesPath: string;
   private readonly mcpPath: string;
-  private preferences: { skillPaths: string[]; disabledSkills: string[] };
+  private preferences: {
+    skillPaths: string[];
+    disabledSkills: string[];
+  };
   constructor(
     readonly workspace: string,
     readonly agentDir: string,
+    readonly globalSkillRoot = join(homedir(), ".agents"),
   ) {
     mkdirSync(agentDir, { recursive: true, mode: 0o700 });
     this.preferencesPath = join(agentDir, "grimoire-integrations.json");
     this.mcpPath = join(agentDir, "mcp.json");
-    this.preferences = this.read(this.preferencesPath, {
+    const stored = this.read(this.preferencesPath, {
       skillPaths: [],
       disabledSkills: [],
     });
+    this.preferences = {
+      skillPaths: stored.skillPaths,
+      disabledSkills: stored.disabledSkills,
+    };
     this.nativeSettings = SettingsManager.create(workspace, agentDir, {
       projectTrusted: false,
     });
@@ -153,23 +166,26 @@ export class IntegrationStore {
       path.startsWith("~/") ? join(homedir(), path.slice(2)) : path,
     );
   }
-  selectSkills(base: { skills: Skill[]; diagnostics: ResourceDiagnostic[] }) {
+  selectSkills(
+    base: { skills: Skill[]; diagnostics: ResourceDiagnostic[] },
+    workspace = this.workspace,
+  ) {
     const paths = [
       join(this.agentDir, "skills"),
-      join(this.workspace, ".pi", "skills"),
-      join(this.workspace, ".agents", "skills"),
+      join(workspace, ".pi", "skills"),
+      join(workspace, ".agents", "skills"),
       ...this.preferences.skillPaths.map((p) => this.resolve(p)),
+      this.globalSkillRoot,
     ].filter(existsSync);
     const extra = loadSkills({
-      cwd: this.workspace,
+      cwd: workspace,
       agentDir: this.agentDir,
       skillPaths: paths,
       includeDefaults: false,
     });
     const byName = new Map<string, Skill>();
     const nativeSkills = base.skills.filter(
-      (s) =>
-        within(this.workspace, s.filePath) || within(this.agentDir, s.filePath),
+      (s) => within(workspace, s.filePath) || within(this.agentDir, s.filePath),
     );
     for (const skill of [...extra.skills, ...nativeSkills])
       if (!byName.has(skill.name)) byName.set(skill.name, skill);
@@ -197,16 +213,17 @@ export class IntegrationStore {
       modelInvocable: !s.disableModelInvocation,
     }));
   }
-  async scan() {
+  async scan(workspace = this.workspace) {
     await this.nativeSettings.reload();
     const resources = await this.packages.resolve(async () => "skip");
     const loaded = loadSkills({
-      cwd: this.workspace,
+      cwd: workspace,
       agentDir: this.agentDir,
       skillPaths: resources.skills.filter((r) => r.enabled).map((r) => r.path),
       includeDefaults: false,
     });
-    this.selectSkills(loaded);
+    const selected = this.selectSkills(loaded, workspace);
+    return { ...selected, snapshot: this.skillSnapshot() };
   }
   issues() {
     return this.diagnostics.map(({ path, message }) => ({ path, message }));
@@ -286,13 +303,42 @@ export class IntegrationStore {
         p.skills?.length !== 0,
     }));
   }
+  async checkPackageUpdates(
+    refresh = false,
+    signal?: AbortSignal,
+  ): Promise<PluginUpdate[]> {
+    signal?.throwIfAborted();
+    if (
+      !refresh &&
+      this.updateCache &&
+      Date.now() - this.updateCache.checked < 5 * 60_000
+    )
+      return this.updateCache.results;
+    const configured = new Set(
+      (await this.listPackages()).map((pkg) => pkg.source),
+    );
+    const updates = await this.packages.checkForAvailableUpdates();
+    signal?.throwIfAborted();
+    const results = updates.filter((update) => configured.has(update.source));
+    this.updateCache = { checked: Date.now(), results };
+    return results;
+  }
   async packageAction(
-    action: "install" | "remove" | "enable" | "disable",
+    action: "install" | "remove" | "enable" | "disable" | "update",
     source: string,
   ) {
-    source = packageSourceSchema.parse(source);
+    if (action !== "update") source = packageSourceSchema.parse(source);
     await this.nativeSettings.reload();
-    if (action === "install") await this.packages.installAndPersist(source);
+    if (action === "update") {
+      if (
+        !this.nativeSettings
+          .getPackages()
+          .some((p) => (typeof p === "string" ? p : p.source) === source)
+      )
+        throw new PolicyError("Package not found.");
+      await this.packages.update(source);
+    } else if (action === "install")
+      await this.packages.installAndPersist(source);
     else if (action === "remove") await this.packages.removeAndPersist(source);
     else {
       const current = this.nativeSettings.getPackages();
@@ -311,6 +357,7 @@ export class IntegrationStore {
       );
     }
     await this.nativeSettings.flush();
+    this.updateCache = undefined;
   }
 }
 
