@@ -1,3 +1,4 @@
+import { writeClipboardText } from "./clipboard";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Copy, MoreHorizontal, Pencil, SquarePen, X } from "lucide-react";
@@ -142,8 +143,7 @@ export function ProjectActions({
               type="button"
               role="menuitem"
               onClick={() => {
-                void navigator.clipboard
-                  .writeText(workspace.path)
+                void writeClipboardText(workspace.path)
                   .then(() => setCopied(true))
                   .catch(() => setError(t("copyPathFailed")));
               }}

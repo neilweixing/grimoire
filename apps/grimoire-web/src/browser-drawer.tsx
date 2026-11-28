@@ -52,6 +52,8 @@ type BrowserCommand = {
 declare global {
   interface Window {
     grimoireDesktop?: {
+      app?: { quit(): Promise<void> };
+      clipboard?: { writeText(text: string): Promise<void> };
       updates?: DesktopUpdateBridge;
       browser: {
         command(command: BrowserCommand): Promise<BrowserState>;
@@ -161,11 +163,17 @@ export function BrowserDrawer({
           ".app-shell.sidebar-open .sidebar, .app-shell.sidebar-closed .sidebar-rail",
         )
         ?.getBoundingClientRect().width ?? 72;
+    const chatMinimum =
+      Number.parseFloat(
+        getComputedStyle(
+          panel.current?.closest(".app-shell") ?? document.documentElement,
+        ).getPropertyValue("--chat-min-width"),
+      ) || 360;
     const maximum =
       window.innerWidth <= 759
         ? window.innerWidth -
           (document.documentElement.dataset.desktop ? 144 : 72)
-        : Math.max(280, window.innerWidth - sidebar - 560);
+        : Math.max(280, window.innerWidth - sidebar - chatMinimum);
     setWidth(Math.max(Math.min(280, maximum), Math.min(maximum, value)));
   };
   useEffect(() => {

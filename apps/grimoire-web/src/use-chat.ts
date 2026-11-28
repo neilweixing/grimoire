@@ -16,9 +16,18 @@ import { useI18n } from "./i18n";
 import { readStoredValue } from "./storage";
 import type { AssistantRuntime } from "@assistant-ui/react";
 import { workspaceApi } from "./workspace";
+import { localAttachmentAdapter } from "./local-attachments";
 
 export function useGrimoireChat(workspaceId: string, workspacePath: string) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
+  const attachments = useMemo(
+    () =>
+      localAttachmentAdapter(workspaceId, {
+        tooLarge: t("attachmentTooLarge"),
+        uploadFailed: t("attachmentUploadFailed"),
+      }),
+    [workspaceId, locale],
+  );
   const activeKey = `grimoire.pi.activeThread.${workspaceId}`;
   const [storageError, setError] = useState("");
   const [initialThreadId] = useState(() => {
@@ -97,6 +106,7 @@ export function useGrimoireChat(workspaceId: string, workspacePath: string) {
   }, [workspaceId, workspacePath]);
   const runtime = usePiRuntime({
     client,
+    adapters: { attachments },
     initialThreadId,
     onThreadIdChange: (id) => {
       try {

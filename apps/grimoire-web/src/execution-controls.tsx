@@ -13,6 +13,9 @@ import {
 } from "lucide-react";
 import type { ExecutionSettings, PermissionMode } from "@grimoire/core";
 import { useWorkspace, workspaceApi } from "./workspace";
+import { Select } from "./select";
+import { Tooltip } from "./tooltip";
+import { ConfirmDialog } from "./confirm-dialog";
 import { useI18n } from "./i18n";
 
 export function ExecutionControls({
@@ -26,13 +29,15 @@ export function ExecutionControls({
   const [execution, setExecution] = useState<ExecutionSettings>();
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
+  const [confirmFullAccess, setConfirmFullAccess] = useState(false);
   const [error, setError] = useState("");
   const root = useRef<HTMLDivElement>(null);
+  const modeTrigger = useRef<HTMLButtonElement>(null);
   const validId = metadata.id && !metadata.id.startsWith("__");
   useEffect(() => {
     if (pending) return;
     const controller = new AbortController();
-    setError("");
+    if (!confirmFullAccess) setError("");
     void workspaceApi<ExecutionSettings>(
       workspace.id,
       validId ? `/pi/threads/${metadata.id}/execution` : "/pi/execution",
@@ -45,7 +50,7 @@ export function ExecutionControls({
         if (!controller.signal.aborted) setError(error.message);
       });
     return () => controller.abort();
-  }, [metadata.id, pending, workspace.id]);
+  }, [metadata.id, pending, workspace.id, confirmFullAccess]);
   useEffect(() => {
     if (!open) return;
     const close = (event: PointerEvent) => {
@@ -71,8 +76,6 @@ export function ExecutionControls({
   const ModeIcon = icons[mode];
   const select = async (mode: PermissionMode) => {
     const acknowledgeFullAccess = mode === "full";
-    if (acknowledgeFullAccess && !window.confirm(t("permissionFullConfirm")))
-      return;
     setPending(true);
     setError("");
     try {
@@ -89,6 +92,7 @@ export function ExecutionControls({
       );
       await refresh();
       setOpen(false);
+      setConfirmFullAccess(false);
     } catch (error) {
       setError(error instanceof Error ? error.message : t("requestFailed"));
     } finally {
@@ -97,25 +101,40 @@ export function ExecutionControls({
   };
   return (
     <div className="execution-picker" ref={root}>
-      <button
-        type="button"
-        className="execution-mode"
-        aria-label={t("permissions")}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        title={t(
-          mode === "full"
-            ? "permissionFullHint"
-            : mode === "read-only"
-              ? "permissionReadOnlyHint"
-              : "permissionWorkspaceHint",
-        )}
-        onClick={() => setOpen((value) => !value)}
+      <Tooltip
+        content={
+          <>
+            <strong>{labels[mode]}</strong>
+            <span>
+              {t(
+                mode === "full"
+                  ? "permissionFullHint"
+                  : mode === "read-only"
+                    ? "permissionReadOnlyHint"
+                    : "permissionWorkspaceHint",
+              )}
+            </span>
+          </>
+        }
       >
-        <ModeIcon size={13} />
-        <span>{labels[mode]}</span>
-        <ChevronDown size={11} className={open ? "chevron-open" : ""} />
-      </button>
+        <button
+          type="button"
+          ref={modeTrigger}
+          className="execution-mode"
+          aria-label={`${t("permissions")}: ${labels[mode]}`}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          onClick={() => setOpen((value) => !value)}
+        >
+          <ModeIcon size={16} aria-hidden="true" />
+          <span className="execution-label">{labels[mode]}</span>
+          <ChevronDown
+            size={11}
+            className={`execution-chevron ${open ? "chevron-open" : ""}`}
+            aria-hidden="true"
+          />
+        </button>
+      </Tooltip>
       {open && (
         <div
           className="execution-menu"
@@ -141,7 +160,13 @@ export function ExecutionControls({
                     ? "permissionReadOnlyHint"
                     : "permissionWorkspaceHint",
               )}
-              onClick={() => void select(mode)}
+              onClick={() => {
+                if (mode === "full" && execution?.mode !== "full") {
+                  setOpen(false);
+                  setError("");
+                  setConfirmFullAccess(true);
+                } else void select(mode);
+              }}
             >
               {(() => {
                 const Icon = icons[mode];
@@ -163,6 +188,21 @@ export function ExecutionControls({
           )}
         </div>
       )}
+      <ConfirmDialog
+        open={confirmFullAccess}
+        title={t("permissionFull")}
+        description={t("permissionFullConfirm")}
+        confirmLabel={t("enableFullAccess")}
+        pending={pending}
+        error={error}
+        icon={ShieldAlert}
+        tone="primary"
+        onCancel={() => {
+          setConfirmFullAccess(false);
+          requestAnimationFrame(() => modeTrigger.current?.focus());
+        }}
+        onConfirm={() => void select("full")}
+      />
     </div>
   );
 }
@@ -217,23 +257,19 @@ export function ApprovalRequests() {
             />
           )}
           {request.kind === "select" && (
-            <select
-              className="host-ui-input"
-              aria-label={request.title}
+            <Select
+              label={request.title}
               value={values[request.id] ?? ""}
-              onChange={(e) =>
-                setValues({ ...values, [request.id]: e.target.value })
+              disabled={pending === request.id}
+              placeholder={t("selectOption")}
+              options={request.options.map((option) => ({
+                value: option,
+                label: option,
+              }))}
+              onChange={(value) =>
+                setValues({ ...values, [request.id]: value })
               }
-            >
-              <option value="" disabled>
-                {t("selectOption")}
-              </option>
-              {request.options.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
+            />
           )}
 
           <div className="approval-actions">

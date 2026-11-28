@@ -7,6 +7,7 @@ import {
   X,
   LoaderCircle,
   ChevronRight,
+  Trash2,
 } from "lucide-react";
 import { api } from "./api";
 import { useI18n } from "./i18n";
@@ -104,6 +105,7 @@ export function WorkspacePicker({
   chats,
   currentChatId,
   onOpenChat,
+  onDeleteChat,
   onNewChat,
   onRenamed,
   onDeleted,
@@ -115,6 +117,7 @@ export function WorkspacePicker({
   chats: WorkspaceChat[];
   currentChatId: string;
   onOpenChat: (workspaceId: string, threadId: string) => void;
+  onDeleteChat: (chat: WorkspaceChat) => void;
   onNewChat: (workspaceId: string) => void;
   onRenamed: (workspace: Workspace) => void;
   onDeleted: (workspaceId: string) => void;
@@ -295,7 +298,7 @@ export function WorkspacePicker({
                   {chats
                     .filter((chat) => chat.workspaceId === workspace.id)
                     .map((chat) => (
-                      <li key={chat.id}>
+                      <li key={chat.id} className="project-thread-row">
                         <button
                           type="button"
                           className={`project-thread ${workspace.id === current.id && chat.id === currentChatId ? "selected" : ""}`}
@@ -309,6 +312,15 @@ export function WorkspacePicker({
                           onClick={() => onOpenChat(workspace.id, chat.id)}
                         >
                           <span>{chat.title || t("newChat")}</span>
+                        </button>
+                        <button
+                          type="button"
+                          className="chat-delete icon-button"
+                          aria-label={`${t("deleteChat")}: ${chat.title || t("newChat")}`}
+                          title={t("deleteChat")}
+                          onClick={() => onDeleteChat(chat)}
+                        >
+                          <Trash2 size={13} />
                         </button>
                       </li>
                     ))}

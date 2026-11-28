@@ -1,47 +1,30 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Check,
   ChevronRight,
-  Globe2,
   KeyRound,
-  LoaderCircle,
   Pencil,
   Plus,
   Server,
   SlidersHorizontal,
   Trash2,
   X,
-  ShieldAlert,
   Plug,
   BookOpen,
 } from "lucide-react";
 import {
   type ProviderInput,
-  type ProviderKind,
   type ProviderSettings,
   type PublicProvider,
 } from "@grimoire/core";
+import { Select } from "./select";
 import { api } from "./api";
+import { ProviderForm } from "./provider-form";
 import { IntegrationSettings } from "./integration-settings";
+import { useUserPreferences } from "./preferences";
 import { AppVersion } from "./desktop-updates";
 
 import { useI18n, type Locale } from "./i18n";
-
-const defaults: Record<ProviderKind, { model: string; baseUrl: string }> = {
-  openai: { model: "gpt-4.1-mini", baseUrl: "https://api.openai.com/v1" },
-  anthropic: {
-    model: "claude-sonnet-4-6",
-    baseUrl: "https://api.anthropic.com",
-  },
-  "openai-compatible": { model: "", baseUrl: "" },
-  native: { model: "", baseUrl: "" },
-};
-const blank: ProviderInput = {
-  name: "",
-  kind: "openai",
-  ...defaults.openai,
-  apiKey: "",
-};
 
 export function Settings({
   settings,
@@ -61,50 +44,13 @@ export function Settings({
   const dialog = useRef<HTMLDialogElement>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState<ProviderInput>(blank);
+  const [editingProvider, setEditingProvider] = useState<PublicProvider>();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const [deleting, setDeleting] = useState<string | null>(null);
-  const [browserReady, setBrowserReady] = useState(false);
-  const [ignoreCertificates, setIgnoreCertificates] = useState(false);
-  const [browserPending, setBrowserPending] = useState(false);
-  const [browserError, setBrowserError] = useState("");
-  useEffect(() => {
-    const bridge = window.grimoireDesktop?.browser;
-    if (!bridge) return;
-    let active = true;
-    void bridge
-      .command({ action: "state" })
-      .then((state) => {
-        if (active) {
-          setIgnoreCertificates(state.ignoreCertificateErrors);
-          setBrowserReady(true);
-        }
-      })
-      .catch(() => {
-        if (active) setBrowserError(t("browserPreferenceFailed"));
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
-  const changeCertificatePreference = async () => {
-    const bridge = window.grimoireDesktop?.browser;
-    if (!bridge) return;
-    setBrowserPending(true);
-    setBrowserError("");
-    try {
-      const state = await bridge.command({
-        action: "settings",
-        ignoreCertificateErrors: !ignoreCertificates,
-      });
-      setIgnoreCertificates(state.ignoreCertificateErrors);
-    } catch {
-      setBrowserError(t("browserPreferenceFailed"));
-    } finally {
-      setBrowserPending(false);
-    }
-  };
+  const preferences = useUserPreferences();
+  const [quitPending, setQuitPending] = useState(false);
+  const [quitError, setQuitError] = useState(false);
   useEffect(() => {
     dialog.current?.showModal();
   }, []);
@@ -130,29 +76,20 @@ export function Settings({
     setError("");
     setEditingId(provider?.id || null);
     setShowForm(true);
-    setForm(
-      provider
-        ? {
-            name: provider.name,
-            kind: provider.kind,
-            model: provider.model,
-            baseUrl: provider.baseUrl,
-            apiKey: "",
-            contextWindow: provider.contextWindow,
-          }
-        : blank,
-    );
+    setEditingProvider(provider);
   };
-  const save = async (event: FormEvent) => {
-    event.preventDefault();
+  const save = async (input: ProviderInput) => {
     if (
       await mutate(
         editingId ? `/providers/${editingId}` : "/providers",
         editingId ? "PUT" : "POST",
-        form,
+        input,
       )
-    )
+    ) {
       setShowForm(false);
+      return true;
+    }
+    return false;
   };
 
   return (
@@ -227,27 +164,45 @@ export function Settings({
             <div className="general-settings">
               <h4 className="settings-category">{t("commonCategory")}</h4>
               <div className="preference-row">
-                <span className="preference-icon">
-                  <Globe2 size={20} />
-                </span>
                 <div className="preference-description">
                   <label htmlFor="interface-language">{t("language")}</label>
                 </div>
-                <select
+                <Select
                   id="interface-language"
-                  aria-label={t("language")}
+                  label={t("language")}
                   value={locale}
-                  onChange={(event) => setLocale(event.target.value as Locale)}
-                >
-                  <option value="zh">简体中文</option>
-                  <option value="en">English</option>
-                </select>
+                  disabled={!preferences.ready || preferences.pending}
+                  options={[
+                    { value: "zh", label: "简体中文" },
+                    { value: "en", label: "English" },
+                  ]}
+                  onChange={(value) => setLocale(value as Locale)}
+                />
+              </div>
+              <div className="preference-row">
+                <div className="preference-description">
+                  <label htmlFor="interface-appearance">
+                    {t("appearance")}
+                  </label>
+                </div>
+                <Select
+                  id="interface-appearance"
+                  label={t("appearance")}
+                  value={preferences.preferences.appearance}
+                  disabled={!preferences.ready || preferences.pending}
+                  options={[
+                    { value: "light", label: t("appearanceLight") },
+                    { value: "dark", label: t("appearanceDark") },
+                  ]}
+                  onChange={(value) =>
+                    void preferences.update({
+                      appearance: value as "light" | "dark",
+                    })
+                  }
+                />
               </div>
               <h4 className="settings-category">{t("securityCategory")}</h4>
               <div className="preference-row">
-                <span className="preference-icon">
-                  <ShieldAlert size={20} />
-                </span>
                 <div className="preference-description">
                   <label id="ignore-browser-certificates">
                     {t("ignoreBrowserCertificates")}
@@ -257,20 +212,62 @@ export function Settings({
                   type="button"
                   role="switch"
                   aria-labelledby="ignore-browser-certificates"
-                  aria-checked={ignoreCertificates}
-                  disabled={!browserReady || browserPending}
-                  className={`preference-switch ${ignoreCertificates ? "is-on" : ""}`}
-                  onClick={() => void changeCertificatePreference()}
+                  aria-checked={preferences.preferences.ignoreCertificateErrors}
+                  disabled={
+                    !window.grimoireDesktop?.browser ||
+                    !preferences.ready ||
+                    preferences.pending
+                  }
+                  className={`preference-switch ${preferences.preferences.ignoreCertificateErrors ? "is-on" : ""}`}
+                  onClick={() =>
+                    void preferences.update({
+                      ignoreCertificateErrors:
+                        !preferences.preferences.ignoreCertificateErrors,
+                    })
+                  }
                 >
                   <span />
                 </button>
               </div>
-              {browserError && (
+              {preferences.failed && (
                 <p className="error-banner" role="alert">
-                  {browserError}
+                  {t("preferencesFailed")}
+                  <button
+                    className="text-button"
+                    disabled={preferences.pending}
+                    onClick={() => void preferences.reload()}
+                  >
+                    {t("retryPreferences")}
+                  </button>
                 </p>
               )}
-              <AppVersion />
+              <footer className="general-settings-footer">
+                <AppVersion />
+                {window.grimoireDesktop?.app && (
+                  <button
+                    type="button"
+                    className="text-button quit-application"
+                    disabled={quitPending}
+                    onClick={async () => {
+                      setQuitPending(true);
+                      setQuitError(false);
+                      try {
+                        await window.grimoireDesktop!.app!.quit();
+                      } catch {
+                        setQuitPending(false);
+                        setQuitError(true);
+                      }
+                    }}
+                  >
+                    {t("quitApplication")}
+                  </button>
+                )}
+              </footer>
+              {quitError && (
+                <p className="error-banner" role="alert">
+                  {t("quitApplicationFailed")}
+                </p>
+              )}
             </div>
           ) : (
             <>
@@ -367,124 +364,13 @@ export function Settings({
                   <Plus size={17} /> {t("addProvider")}
                 </button>
               ) : (
-                <form className="provider-form" onSubmit={save}>
-                  <div className="form-heading">
-                    <h4>{editingId ? t("editProvider") : t("addProvider")}</h4>
-                    <button
-                      type="button"
-                      className="icon-button"
-                      aria-label={t("cancelEdit")}
-                      onClick={() => setShowForm(false)}
-                    >
-                      <X size={16} />
-                    </button>
-                  </div>
-                  <div className="form-grid">
-                    <label>
-                      {t("name")}
-                      <input
-                        autoFocus
-                        required
-                        maxLength={80}
-                        placeholder={t("namePlaceholder")}
-                        value={form.name}
-                        onChange={(e) =>
-                          setForm({ ...form, name: e.target.value })
-                        }
-                      />
-                    </label>
-                    <label>
-                      {t("apiType")}
-                      <select
-                        value={form.kind}
-                        onChange={(e) => {
-                          const kind = e.target.value as ProviderKind;
-                          setForm({ ...form, kind, ...defaults[kind] });
-                        }}
-                      >
-                        <option value="openai">OpenAI Responses</option>
-                        <option value="anthropic">Anthropic Messages</option>
-                        <option value="openai-compatible">
-                          {t("compatible")}
-                        </option>
-                      </select>
-                    </label>
-                    <label className="full-width">
-                      {t("apiUrl")}
-                      <input
-                        type="url"
-                        required
-                        value={form.baseUrl || ""}
-                        placeholder="https://api.example.com/v1"
-                        onChange={(e) =>
-                          setForm({ ...form, baseUrl: e.target.value })
-                        }
-                      />
-                    </label>
-                    <label>
-                      {t("modelId")}
-                      <input
-                        required
-                        maxLength={200}
-                        placeholder={t("modelPlaceholder")}
-                        value={form.model}
-                        onChange={(e) =>
-                          setForm({ ...form, model: e.target.value })
-                        }
-                      />
-                    </label>
-                    <label>
-                      {t("apiKey")}
-                      <input
-                        type="password"
-                        autoComplete="new-password"
-                        value={form.apiKey || ""}
-                        placeholder={editingId ? t("keepKey") : t("localKey")}
-                        onChange={(e) =>
-                          setForm({ ...form, apiKey: e.target.value })
-                        }
-                      />
-                    </label>
-                    <label className="full-width">
-                      {t("contextWindow")}
-                      <input
-                        type="number"
-                        min={1}
-                        max={10_000_000}
-                        step={1}
-                        value={form.contextWindow ?? ""}
-                        placeholder={t("contextWindowPlaceholder")}
-                        onChange={(event) =>
-                          setForm({
-                            ...form,
-                            contextWindow:
-                              event.target.value === ""
-                                ? undefined
-                                : Number(event.target.value),
-                          })
-                        }
-                      />
-                    </label>
-                  </div>
-
-                  <div className="form-footer">
-                    <button
-                      type="button"
-                      className="text-button"
-                      onClick={() => setShowForm(false)}
-                    >
-                      {t("cancel")}
-                    </button>
-                    <button
-                      className="primary-button"
-                      disabled={pending}
-                      type="submit"
-                    >
-                      {pending && <LoaderCircle size={14} className="spin" />}
-                      {t("saveProvider")}
-                    </button>
-                  </div>
-                </form>
+                <ProviderForm
+                  key={editingId ?? "new"}
+                  provider={editingProvider}
+                  pending={pending}
+                  onSave={save}
+                  onCancel={() => setShowForm(false)}
+                />
               )}
             </>
           )}
