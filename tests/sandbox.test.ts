@@ -11,7 +11,7 @@ import {
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, expect, it } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { NativeSandboxExecutor } from "../apps/grimoire-agent/src/sandbox";
 import { PermissionPolicy } from "../apps/grimoire-agent/src/permissions";
 
@@ -21,7 +21,10 @@ beforeEach(() => {
   directory = mkdtempSync(join(tmpdir(), "grimoire-sandbox-"));
   executor = new NativeSandboxExecutor(join(directory, "workspace"));
 });
-afterEach(() => rmSync(directory, { recursive: true, force: true }));
+afterEach(() => {
+  vi.unstubAllEnvs();
+  rmSync(directory, { recursive: true, force: true });
+});
 it.each([false, true])(
   "keeps command caches and temporary files outside the project (full access: %s)",
   async (unrestricted) => {
@@ -224,4 +227,102 @@ it("still permits regular external files after validating their type", async () 
   writeFileSync(path, "Regular file");
   const unrestricted = new NativeSandboxExecutor(executor.root, true);
   expect((await unrestricted.readFile(path)).toString()).toBe("Regular file");
+});
+
+it("inherits arbitrary process environment values in full access without a variable-name allowlist", async () => {
+  vi.stubEnv(
+    "GRIMOIRE_ENV_FIXTURE_ONE",
+    "fixture value with spaces and $literal",
+  );
+  vi.stubEnv("GRIMOIRE_ENV_FIXTURE_TWO", "another-fixture-value");
+  vi.stubEnv("LANG", "C");
+  const full = new NativeSandboxExecutor(
+    executor.root,
+    true,
+    undefined,
+    join(directory, "full-runtime"),
+  ).withAccess({});
+  const read = async () => {
+    let output = "";
+    const result = await full.exec(
+      'printf "%s|%s|%s" "$GRIMOIRE_ENV_FIXTURE_ONE" "$GRIMOIRE_ENV_FIXTURE_TWO" "$LANG"',
+      full.root,
+      {
+        onData: (data) => {
+          output += data.toString();
+        },
+      },
+    );
+    expect(result.exitCode).toBe(0);
+    return output;
+  };
+  expect(await read()).toBe(
+    "fixture value with spaces and $literal|another-fixture-value|C",
+  );
+  vi.stubEnv("GRIMOIRE_ENV_FIXTURE_TWO", "changed-before-next-command");
+  expect(await read()).toBe(
+    "fixture value with spaces and $literal|changed-before-next-command|C",
+  );
+});
+it.each(["workspace", "read-only"] as const)(
+  "does not inherit arbitrary process values in %s mode",
+  async (mode) => {
+    vi.stubEnv("GRIMOIRE_ENV_FIXTURE_ONE", "must-stay-in-parent");
+    vi.stubEnv("GRIMOIRE_ENV_FIXTURE_TWO", "another-parent-value");
+    const sandbox = new NativeSandboxExecutor(
+      executor.root,
+      false,
+      undefined,
+      join(directory, "sandbox-runtime"),
+    ).withAccess({ readOnly: mode === "read-only" });
+    if (!sandbox.shellAvailable()) return;
+    let output = "";
+    const result = await sandbox.exec(
+      'printf "%s|%s" "${GRIMOIRE_ENV_FIXTURE_ONE-unset}" "${GRIMOIRE_ENV_FIXTURE_TWO-unset}"',
+      sandbox.root,
+      {
+        onData: (data) => {
+          output += data.toString();
+        },
+      },
+    );
+    expect(result.exitCode).toBe(0);
+    expect(output).toBe("unset|unset");
+  },
+);
+it("does not leak inherited values from full access into concurrent or subsequent sandbox commands", async () => {
+  vi.stubEnv("GRIMOIRE_ENV_FIXTURE_ONE", "full-only-fixture");
+  const sandbox = new NativeSandboxExecutor(
+    executor.root,
+    false,
+    undefined,
+    join(directory, "sandbox-runtime"),
+  );
+  if (!sandbox.shellAvailable()) return;
+  const full = new NativeSandboxExecutor(
+    executor.root,
+    true,
+    undefined,
+    join(directory, "full-runtime"),
+  );
+  const read = async (target: NativeSandboxExecutor) => {
+    let output = "";
+    const result = await target.exec(
+      'printf "%s" "${GRIMOIRE_ENV_FIXTURE_ONE-unset}"',
+      target.root,
+      {
+        onData: (data) => {
+          output += data.toString();
+        },
+      },
+    );
+    expect(result.exitCode).toBe(0);
+    return output;
+  };
+  expect(await Promise.all([read(full), read(sandbox)])).toEqual([
+    "full-only-fixture",
+    "unset",
+  ]);
+  expect(await read(sandbox)).toBe("unset");
+  expect(process.env.GRIMOIRE_ENV_FIXTURE_ONE).toBe("full-only-fixture");
 });

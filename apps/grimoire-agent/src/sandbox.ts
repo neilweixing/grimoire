@@ -267,11 +267,15 @@ export class NativeSandboxExecutor implements SandboxExecutor {
       }
       argv = wrapped.argv;
     }
-    // Never forward provider keys, proxy credentials, or the service environment.
+    // Full access inherits the host environment; sandboxed modes keep the allowlist.
+    // Runtime directories stay isolated in every mode.
     const env = {
+      ...(this.unrestricted ? process.env : {}),
       PATH: process.env.PATH || "/usr/bin:/bin",
       HOME: directories.home,
-      LANG: "en_US.UTF-8",
+      LANG: this.unrestricted
+        ? process.env.LANG || "en_US.UTF-8"
+        : "en_US.UTF-8",
       TMPDIR: directories.temporary,
       TEMP: directories.temporary,
       TMP: directories.temporary,
