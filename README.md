@@ -38,7 +38,7 @@ Configure **Commit message format** as a required status check in the target bra
 
 [Desktop installers](https://github.com/neilweixing/grimoire/actions/workflows/desktop-build.yml) runs format checks, type checks, tests, and code compilation for pushes to `main`, pull requests, `v*` tags, and manual dispatch. Only a push of a `v*` tag builds Apple Silicon DMG/ZIP packages on macOS and Windows x64 MSI/NSIS EXE packages on Windows; PRs, branch pushes, and manual dispatch skip installer packaging. After a successful tag build, download `Grimoire-macOS-arm64` or `Grimoire-Windows-x64` from **Artifacts**. Installers are unsigned; no signing credentials are included in the repository.
 
-Stable version tags such as `v0.1.1` automatically publish verified installers, update payloads, manifests, blockmaps, and `SHA256SUMS.txt` to [GitHub Releases](https://github.com/neilweixing/grimoire/releases). The tag must match the version in `apps/grimoire-desktop/package.json`. To retry publication from an existing successful tag build without rebuilding or downloading installers locally, run [Publish release](https://github.com/neilweixing/grimoire/actions/workflows/release.yml) with the tag and the **Desktop installers** tag-build run ID. The workflow verifies that the tag points to the exact build commit. GitHub Actions transfers the artifacts and creates the release using its built-in `GITHUB_TOKEN`; no personal token is stored in the repository.
+Stable version tags such as `v0.1.2` automatically publish verified installers, update payloads, manifests, blockmaps, and `SHA256SUMS.txt` to [GitHub Releases](https://github.com/neilweixing/grimoire/releases). The tag must match the version in `apps/grimoire-desktop/package.json`. To retry publication from an existing successful tag build without rebuilding or downloading installers locally, run [Publish release](https://github.com/neilweixing/grimoire/actions/workflows/release.yml) with the tag and the **Desktop installers** tag-build run ID. The workflow verifies that the tag points to the exact build commit. GitHub Actions transfers the artifacts and creates the release using its built-in `GITHUB_TOKEN`; no personal token is stored in the repository.
 
 The workflow verifies types, tests and builds before packaging. Each platform stages its own dependencies, generates native icons from the SVG logo, and runs the packaged app against isolated test data. The Windows job additionally installs the MSI before testing the installed executable. Local data, provider credentials, projects and chat history are excluded from both installers.
 
@@ -70,7 +70,7 @@ pnpm install
 pnpm desktop:dmg
 ```
 
-The installer is `release/Grimoire-0.1.1-arm64.dmg`. Open it and drag Grimoire into Applications. This local build is not signed with an Apple Developer ID or notarized. macOS may require opening it through the Finder context menu or allowing it in System Settings → Privacy & Security.
+The installer is `release/Grimoire-0.1.2-arm64.dmg`. Open it and drag Grimoire into Applications. This local build is not signed with an Apple Developer ID or notarized. macOS may require opening it through the Finder context menu or allowing it in System Settings → Privacy & Security.
 
 For desktop development, run `pnpm desktop:dev`. This starts Vite, builds the Pi service with TypeScript source maps, and launches Electron with debugger endpoints. No DMG or staging build is required. Only Apple Silicon Macs are currently supported.
 
