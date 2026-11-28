@@ -2,6 +2,7 @@ import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { UserPreferencesStore } from "./user-preferences.js";
 import { createApp } from "./app.js";
 import { SettingsStore } from "./settings.js";
 import { NativeSandboxExecutor } from "./sandbox.js";
@@ -26,8 +27,41 @@ const browserPending = new Map<
   number,
   { resolve(value: unknown): void; reject(error: Error): void }
 >();
+const preferences = new UserPreferencesStore(join(dataDir, "preferences.json"));
+preferences.get();
+const preferencePending = new Map<
+  number,
+  { resolve(): void; reject(error: Error): void }
+>();
 const app = createApp(new SettingsStore(join(dataDir, "providers.json")), {
   dataDir: join(dataDir, "pi"),
+  preferences,
+  onPreferencesChange: (value) => {
+    const id = ++nextRequest;
+    return new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        preferencePending.delete(id);
+        reject(new Error("Applying desktop preferences timed out."));
+      }, 15_000);
+      preferencePending.set(id, {
+        resolve: () => {
+          clearTimeout(timeout);
+          preferencePending.delete(id);
+          resolve();
+        },
+        reject: (error) => {
+          clearTimeout(timeout);
+          preferencePending.delete(id);
+          reject(error);
+        },
+      });
+      parent.postMessage({
+        type: "preferences-change",
+        id,
+        preferences: value,
+      });
+    });
+  },
   allowFullAccess: true,
   browser: async (request: BrowserRequest, signal) => {
     signal?.throwIfAborted();
@@ -71,10 +105,28 @@ const app = createApp(new SettingsStore(join(dataDir, "providers.json")), {
   },
 });
 if (!development) {
+  const renderIndex = () => {
+    const value = preferences.get();
+    return readFileSync(join(webDir, "index.html"), "utf8")
+      .replace(
+        '<html lang="zh-CN">',
+        `<html lang="${value.language === "zh" ? "zh-CN" : "en"}" data-theme="${value.appearance}">`,
+      )
+      .replace(
+        'content="#fcfaf7"',
+        `content="${value.appearance === "dark" ? "#282c34" : "#fcfaf7"}"`,
+      )
+      .replace(
+        "</head>",
+        `<script id="grimoire-preferences" type="application/json">${JSON.stringify(value)}</script></head>`,
+      );
+  };
+  app.get("/", (c) => c.html(renderIndex()));
+  app.get("/index.html", (c) => c.html(renderIndex()));
   app.use("/*", serveStatic({ root: webDir }));
   app.get("*", (c) => {
     if (c.req.path.startsWith("/api/")) return c.notFound();
-    return c.html(readFileSync(join(webDir, "index.html"), "utf8"));
+    return c.html(renderIndex());
   });
 }
 const server = serve(
@@ -88,6 +140,11 @@ const server = serve(
   },
 );
 parent.on("message", async ({ data }) => {
+  if (data.type === "preferences-result") {
+    const pending = preferencePending.get(data.id);
+    if (data.error) pending?.reject(new Error(data.error));
+    else pending?.resolve();
+  }
   if (data.type === "browser-result") {
     const pending = browserPending.get(data.id);
     if (data.error) pending?.reject(new Error(data.error));
@@ -95,6 +152,8 @@ parent.on("message", async ({ data }) => {
   }
   if (data.type === "folder-result") pending.get(data.id)?.(data.path);
   if (data.type === "shutdown") {
+    for (const pending of preferencePending.values())
+      pending.reject(new Error("The desktop Agent is shutting down."));
     for (const pending of browserPending.values())
       pending.reject(new Error("The desktop Agent is shutting down."));
     for (const finish of pending.values()) finish(null);

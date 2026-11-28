@@ -13,13 +13,29 @@ class BrowserPreferences {
         throw error;
     }
   }
+  applyIgnoreCertificateErrors(value) {
+    if (typeof value !== "boolean")
+      throw new Error("Invalid certificate preference.");
+    const changed = this.ignoreCertificateErrors !== value;
+    this.ignoreCertificateErrors = value;
+    return changed;
+  }
   setIgnoreCertificateErrors(value) {
     if (typeof value !== "boolean")
       throw new Error("Invalid certificate preference.");
+    let current = {};
+    try {
+      const value = JSON.parse(readFileSync(this.path, "utf8"));
+      if (value && typeof value === "object" && !Array.isArray(value))
+        current = value;
+    } catch (error) {
+      if (error.code !== "ENOENT" && !(error instanceof SyntaxError))
+        throw error;
+    }
     const temp = `${this.path}.tmp`;
     writeFileSync(
       temp,
-      JSON.stringify({ ignoreCertificateErrors: value }, null, 2),
+      JSON.stringify({ ...current, ignoreCertificateErrors: value }, null, 2),
       { mode: 0o600 },
     );
     renameSync(temp, this.path);
