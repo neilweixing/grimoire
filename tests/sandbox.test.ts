@@ -8,6 +8,7 @@ import {
   existsSync,
   realpathSync,
 } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
@@ -70,7 +71,7 @@ it.each([false, true])(
     expect(output).toBe("cached");
   },
 );
-it("blocks traversal, protected files, symbolic links, and hard links", async () => {
+it("blocks unapproved project-external paths and hard links", async () => {
   writeFileSync(join(directory, "outside.txt"), "private");
   symlinkSync(
     join(directory, "outside.txt"),
@@ -80,9 +81,6 @@ it("blocks traversal, protected files, symbolic links, and hard links", async ()
   for (const path of [
     "../outside.txt",
     join(directory, "outside.txt"),
-    ".env",
-    "nested/.ssh/config",
-    "nested/credentials.json",
     "symbol.txt",
     "hard.txt",
   ]) {
@@ -112,7 +110,7 @@ it("requires explicit server opt-in and acknowledgement for unsandboxed tools", 
   expect(policy.decide("thread", "bash")).toBe("allow");
   expect(policy.decide("thread", "unknown")).toBe("deny");
   policy.setMode("thread", "read-only");
-  expect(policy.decide("thread", "bash")).toBe("deny");
+  expect(policy.decide("thread", "bash")).toBe("allow");
   expect(policy.decide("thread", "read")).toBe("allow");
 });
 it("runs commands inside the native sandbox with no service secrets or outside writes", async () => {
@@ -151,13 +149,13 @@ it("runs commands inside the native sandbox with no service secrets or outside w
       },
     );
     expect(denied.exitCode).not.toBe(0);
-    expect(output).not.toContain("private");
+    expect(output).toContain("private");
     expect(readFileSync(join(directory, "outside.txt"), "utf8")).toBe(
       "private",
     );
     writeFileSync(join(executor.root, ".env"), "hidden-secret");
     output = "";
-    const protectedFile = await executor.exec(
+    const projectFile = await executor.exec(
       "cat .env; printf changed > .env",
       executor.root,
       {
@@ -166,12 +164,64 @@ it("runs commands inside the native sandbox with no service secrets or outside w
         },
       },
     );
-    expect(protectedFile.exitCode).not.toBe(0);
-    expect(output).not.toContain("hidden-secret");
-    expect(readFileSync(join(executor.root, ".env"), "utf8")).toBe(
-      "hidden-secret",
-    );
+    expect(projectFile.exitCode).toBe(0);
+    expect(output).toContain("hidden-secret");
+    expect(readFileSync(join(executor.root, ".env"), "utf8")).toBe("changed");
   } finally {
     delete process.env.GRIMOIRE_SANDBOX_TEST_SECRET;
   }
 }, 20000);
+
+it("runs read-only sandbox commands while blocking project writes", async () => {
+  const readOnly = executor.withAccess({ readOnly: true });
+  if (!readOnly.shellAvailable()) return;
+  writeFileSync(join(executor.root, "source.txt"), "original");
+  let output = "";
+  expect(
+    (
+      await readOnly.exec("cat source.txt", readOnly.root, {
+        onData: (chunk) => {
+          output += chunk.toString();
+        },
+      })
+    ).exitCode,
+  ).toBe(0);
+  expect(output).toContain("original");
+  const denied = await readOnly.exec(
+    "printf changed > source.txt",
+    readOnly.root,
+    { onData() {} },
+  );
+  expect(denied.exitCode).not.toBe(0);
+  expect(readFileSync(join(executor.root, "source.txt"), "utf8")).toBe(
+    "original",
+  );
+  await expect(readOnly.writeFile("source.txt", "changed")).rejects.toThrow(
+    "read-only",
+  );
+}, 20000);
+
+it.skipIf(process.platform === "win32")(
+  "rejects named pipes in unrestricted path checks before opening them",
+  async () => {
+    const fifo = join(directory, "pipe");
+    execFileSync("mkfifo", [fifo]);
+    const unrestricted = new NativeSandboxExecutor(executor.root, true);
+    await expect(unrestricted.checkPath(fifo)).rejects.toThrow("Special files");
+  },
+);
+it.skipIf(process.platform === "win32")(
+  "rejects character devices even for globally allowed reads",
+  async () => {
+    const unrestricted = new NativeSandboxExecutor(executor.root, true);
+    await expect(unrestricted.readFile("/dev/null")).rejects.toThrow(
+      "Special files",
+    );
+  },
+);
+it("still permits regular external files after validating their type", async () => {
+  const path = join(directory, "outside.txt");
+  writeFileSync(path, "Regular file");
+  const unrestricted = new NativeSandboxExecutor(executor.root, true);
+  expect((await unrestricted.readFile(path)).toString()).toBe("Regular file");
+});

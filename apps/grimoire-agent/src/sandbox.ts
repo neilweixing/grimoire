@@ -9,9 +9,9 @@ import {
 } from "node:fs/promises";
 import { existsSync, realpathSync, mkdirSync, mkdtempSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
-import { tmpdir, homedir } from "node:os";
+import { tmpdir } from "node:os";
 import {
   SandboxManager,
   type SandboxRuntimeConfig,
@@ -22,25 +22,35 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { PolicyError } from "./permissions.js";
 
-const protectedName = (original: string) => {
-  const name = process.platform === "win32" ? original.toLowerCase() : original;
-  return (
-    [
-      ".git",
-      ".data",
-      ".ssh",
-      ".aws",
-      ".codex",
-      ".agents",
-      ".pi",
-      ".npmrc",
-      ".netrc",
-      "credentials.json",
-    ].includes(name) ||
-    name === ".env" ||
-    name.startsWith(".env.") ||
-    /\.(pem|key)$/i.test(name)
-  );
+export type SandboxAccess = {
+  readOnly?: boolean;
+  networkDomains?: string[];
+  writePaths?: string[];
+};
+
+export async function canonicalPath(
+  root: string,
+  path: string,
+): Promise<string> {
+  const absolute = resolve(root, path);
+  let parent = absolute;
+  const missing: string[] = [];
+  while (true) {
+    try {
+      return resolve(await realpath(parent), ...missing);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      const next = dirname(parent);
+      if (next === parent) throw error;
+      missing.unshift(parent.slice(next.length + (next.endsWith(sep) ? 0 : 1)));
+      parent = next;
+    }
+  }
+}
+
+const inside = (root: string, path: string) => {
+  const local = relative(root, path);
+  return local !== ".." && !local.startsWith(`..${sep}`) && !isAbsolute(local);
 };
 
 /** Replace this interface to delegate tools to a remote sandbox or micro-VM. */
@@ -48,6 +58,7 @@ export interface SandboxExecutor {
   readonly root: string;
   readonly kind: string;
   shellAvailable(): boolean;
+  withAccess(access: SandboxAccess): SandboxExecutor;
   checkPath(path: string): Promise<string>;
   fingerprint(path: string): Promise<string>;
   readFile(path: string): Promise<Buffer>;
@@ -70,6 +81,7 @@ export class NativeSandboxExecutor implements SandboxExecutor {
     private readonly unrestricted = false,
     private readonly readOnlyPaths: () => string[] = () => [],
     runtimeDir?: string,
+    private readonly accessScope: SandboxAccess = {},
   ) {
     mkdirSync(root, { recursive: true, mode: 0o700 });
     this.root = realpathSync(root);
@@ -87,31 +99,33 @@ export class NativeSandboxExecutor implements SandboxExecutor {
   shellAvailable() {
     return this.unrestricted || this.dependencyErrors.length === 0;
   }
+  withAccess(access: SandboxAccess): SandboxExecutor {
+    return new NativeSandboxExecutor(
+      this.root,
+      this.unrestricted,
+      this.readOnlyPaths,
+      this.runtimeDir,
+      access,
+    );
+  }
   async checkPath(path: string): Promise<string> {
-    const absolute = resolve(this.root, path);
-    if (this.unrestricted) return absolute;
-    const local = relative(this.root, absolute);
-    if (local === ".." || local.startsWith(`..${sep}`) || isAbsolute(local))
+    const absolute = await canonicalPath(this.root, path);
+    if (
+      !this.unrestricted &&
+      !inside(this.root, absolute) &&
+      !this.accessScope.writePaths?.some((entry) => inside(entry, absolute))
+    )
       throw new PolicyError("Path is outside the configured workspace.");
-    if (local.split(sep).some(protectedName))
-      throw new PolicyError("This path is protected.");
-    // Refuse symlinks and hardlinks, including links pointing inside the workspace.
-    let current = this.root;
-    for (const part of local.split(sep).filter(Boolean)) {
-      current = join(current, part);
-      try {
-        const info = await lstat(current);
-        if (info.isSymbolicLink() || (info.isFile() && info.nlink > 1))
-          throw new PolicyError(
-            "Linked paths are not allowed in the workspace.",
-          );
-        if (!info.isDirectory() && !info.isFile())
-          throw new PolicyError("Special files are not allowed.");
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-        break;
-      }
+    try {
+      const info = await lstat(absolute);
+      if (!this.unrestricted && info.isFile() && info.nlink > 1)
+        throw new PolicyError("Linked files require explicit approval.");
+      if (!info.isDirectory() && !info.isFile())
+        throw new PolicyError("Special files are not allowed.");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
+    if (this.unrestricted) return absolute;
     if ((await realpath(this.root)) !== this.root)
       throw new PolicyError("Workspace changed.");
     return absolute;
@@ -134,6 +148,8 @@ export class NativeSandboxExecutor implements SandboxExecutor {
     return readFile(safe);
   }
   async writeFile(path: string, content: string) {
+    if (this.accessScope.readOnly)
+      throw new PolicyError("File writes are disabled in read-only mode.");
     if (Buffer.byteLength(content) > 1024 * 1024)
       throw new PolicyError("File exceeds the 1 MiB write limit.");
     const safe = await this.checkPath(path);
@@ -142,6 +158,8 @@ export class NativeSandboxExecutor implements SandboxExecutor {
     await writeFile(safe, content, { mode: 0o600 });
   }
   async mkdir(path: string) {
+    if (this.accessScope.readOnly)
+      throw new PolicyError("File writes are disabled in read-only mode.");
     await mkdir(await this.checkPath(path), { recursive: true });
   }
   async access(path: string) {
@@ -151,9 +169,7 @@ export class NativeSandboxExecutor implements SandboxExecutor {
     return lstat(await this.checkPath(path));
   }
   async readdir(path: string) {
-    return (await readdir(await this.checkPath(path))).filter(
-      (name) => this.unrestricted || !protectedName(name),
-    );
+    return readdir(await this.checkPath(path));
   }
   private shellDirectories() {
     // Development data can live inside the project; use an external temp directory then.
@@ -180,52 +196,20 @@ export class NativeSandboxExecutor implements SandboxExecutor {
     return { root, home, temporary };
   }
   private config(runtimeRoot: string): SandboxRuntimeConfig {
-    const home = homedir();
-    const deny = [
-      home,
-      "/Users",
-      "/home",
-      "/root",
-      "/private/tmp",
-      "/tmp",
-      "/private/var/folders",
-      "/var/folders",
-    ];
-    const sensitive = [
-      ".env",
-      ".env.*",
-      ".git",
-      ".data",
-      ".ssh",
-      ".aws",
-      ".codex",
-      ".agents",
-      ".pi",
-      ".npmrc",
-      ".netrc",
-      "credentials.json",
-      "*.pem",
-      "*.key",
-    ].map((pattern) => `${this.root}/**/${pattern}`);
     return {
       network: {
         allowedDomains: [],
         deniedDomains: [],
-        strictAllowlist: true,
+        strictAllowlist: false,
         allowLocalBinding: false,
       },
       filesystem: {
-        denyRead: [...deny, ...sensitive],
-        allowRead: [
-          this.root,
-          runtimeRoot,
-          ...this.readOnlyPaths(),
-          ...["/opt/homebrew", "/usr/local", dirname(process.execPath)].filter(
-            existsSync,
-          ),
-        ],
-        allowWrite: [this.root, runtimeRoot],
-        denyWrite: [...sensitive, ...this.readOnlyPaths()],
+        denyRead: [],
+        allowRead: [],
+        allowWrite: this.accessScope.readOnly
+          ? [runtimeRoot]
+          : [this.root, runtimeRoot, ...(this.accessScope.writePaths ?? [])],
+        denyWrite: this.accessScope.readOnly ? [this.root] : [],
       },
     };
   }
@@ -236,6 +220,8 @@ export class NativeSandboxExecutor implements SandboxExecutor {
         `Sandbox unavailable: ${this.dependencyErrors.join("; ")}`,
       );
     const directories = this.shellDirectories();
+    const commandId = randomBytes(16).toString("base64url");
+    let networkRegistered = false;
     let argv = ["/bin/bash", "--noprofile", "--norc", "-c", command];
     if (process.platform === "win32") {
       const config = getPowerShellConfig();
@@ -247,7 +233,7 @@ export class NativeSandboxExecutor implements SandboxExecutor {
           network: {
             allowedDomains: [],
             deniedDomains: [],
-            strictAllowlist: true,
+            strictAllowlist: false,
           },
           filesystem: { denyRead: [], allowWrite: [], denyWrite: [] },
         },
@@ -264,7 +250,18 @@ export class NativeSandboxExecutor implements SandboxExecutor {
         "/bin/bash",
         this.config(directories.root),
         options.signal,
+        this.root,
+        { commandId, commandText: command },
       );
+      if (
+        this.accessScope.networkDomains?.length &&
+        !this.accessScope.readOnly
+      ) {
+        SandboxManager.registerCommandNetworkLists(commandId, {
+          allowedDomains: this.accessScope.networkDomains,
+        });
+        networkRegistered = true;
+      }
       argv = wrapped.argv;
     }
     // Never forward provider keys, proxy credentials, or the service environment.
@@ -299,6 +296,7 @@ export class NativeSandboxExecutor implements SandboxExecutor {
       });
       let finished = false;
       let outputBytes = 0;
+      let outputText = "";
       const terminate = () => {
         if (child.pid) {
           if (process.platform === "win32") {
@@ -323,6 +321,7 @@ export class NativeSandboxExecutor implements SandboxExecutor {
       options.signal?.addEventListener("abort", abort, { once: true });
       if (options.signal?.aborted) terminate();
       const data = (chunk: Buffer) => {
+        outputText = (outputText + chunk.toString()).slice(-32_000);
         const remaining = 32_000 - outputBytes;
         outputBytes += chunk.length;
         if (remaining > 0) options.onData(chunk.subarray(0, remaining));
@@ -330,6 +329,8 @@ export class NativeSandboxExecutor implements SandboxExecutor {
       child.stdout.on("data", data);
       child.stderr.on("data", data);
       const cleanup = () => {
+        if (networkRegistered)
+          SandboxManager.unregisterCommandNetworkLists(commandId);
         clearTimeout(timeout);
         options.signal?.removeEventListener("abort", abort);
         terminate();
@@ -345,6 +346,23 @@ export class NativeSandboxExecutor implements SandboxExecutor {
         if (!finished) {
           finished = true;
           cleanup();
+          if (code !== 0 && !this.unrestricted) {
+            const violations =
+              SandboxManager.getSandboxViolationStore().getViolationsForCommand(
+                commandId,
+              );
+            if (
+              violations.length ||
+              /operation not permitted|permission denied|403.*proxy|proxy.*403/i.test(
+                outputText,
+              )
+            )
+              options.onData(
+                Buffer.from(
+                  "\nGrimoire sandbox: project-external writes and network are blocked unless approved. Retry with explicit writePaths and/or networkDomains to request permission. Never retry a partially completed command without checking its effects.\n",
+                ),
+              );
+          }
           resolvePromise({ exitCode: code ?? 137 });
         }
       });

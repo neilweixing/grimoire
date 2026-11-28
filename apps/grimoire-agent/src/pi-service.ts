@@ -247,6 +247,26 @@ export class PiService {
       definitions.push(
         ...createBrowserTools(this.options.browser, this.workspace),
       );
+    for (const tool of definitions) {
+      if (!["bash", "powershell"].includes(tool.name)) continue;
+      tool.description +=
+        " Commands run in an OS sandbox. In read-only mode commands cannot change project files. Set networkDomains to the domains this command needs, or writePaths to request writes outside the project. Approval applies only to this call.";
+      tool.parameters = Type.Object({
+        ...(tool.parameters as { properties: Record<string, any> }).properties,
+        networkDomains: Type.Optional(
+          Type.Array(Type.String(), {
+            description:
+              "Domains this command needs to contact, such as registry.npmjs.org or *.github.com. Requests approval outside full-access mode; only these destinations are allowed for this call.",
+          }),
+        ),
+        writePaths: Type.Optional(
+          Type.Array(Type.String(), {
+            description:
+              "Additional paths outside the project this command must write. Requires approval.",
+          }),
+        ),
+      });
+    }
     return definitions.map((tool) =>
       protectTool(tool, this.policy, this.executorFor, this.audit, (path) =>
         this.integrations.skillPath(path),
