@@ -1,17 +1,46 @@
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useState,
-  type ReactNode,
-} from "react";
-import { readStoredValue, storageKeys } from "./storage";
+import { createContext, useContext, useEffect, type ReactNode } from "react";
+import { useUserPreferences } from "./preferences";
 
 const en = {
+  reasoningDetails: "Reasoning",
+  activityDetails: "Activity",
+  enableFullAccess: "Enable full access",
+  noMatchingOptions: "No matching options",
+  enterOrSelectModel: "Enter or select a model",
+  searchOptions: "Search…",
+  customModelId: "Custom model ID",
+  loadingModels: "Loading models…",
+  textAndImages: "Text and images",
+  textOnly: "Text",
+  inputModalities: "Input modalities",
+  maxOutputTokens: "Maximum output (tokens)",
+  contextWindowSize: "Context window (tokens)",
+  manualCapabilities: "Custom",
+  capabilityUnknown: "Unknown",
+  automatic: "Automatic",
+  useAutomatic: "Use automatic values",
+  addModel: "Add model",
+  configuredModels: "Configured models",
+  defaultModel: "Default",
+  setDefaultModel: "Set default",
+  removeModel: "Remove model",
+  probeCapabilities: "Test reasoning levels",
+  modelProbeConfirm:
+    "Send short test requests to {model}, one per candidate level (up to 7). This uses provider tokens and may incur charges. No chat history, files or tools are sent. Accepted levels are checked in the draft. Save the provider to keep them.",
+  startModelProbe: "Start test",
+  probingModel: "Testing reasoning levels…",
+  modelProbeFailed: "Request failed; capabilities remain unchanged",
+  modelCapabilities: "Model capabilities",
+  fetchModels: "Fetch models",
+  customProvider: "Custom",
+  presetProvider: "Provider",
+  connectionType: "Connection type",
   viewUpdateNotes: "View full release notes",
   updateNotesEmpty: "No release notes provided.",
   updates: "Updates",
   currentVersion: "Version {version}",
+  quitApplication: "Quit Grimoire",
+  quitApplicationFailed: "Could not quit Grimoire. Please try again.",
   checkUpdates: "Check for updates",
   downloadUpdate: "Download update",
   updateChecking: "Checking for updates…",
@@ -34,6 +63,11 @@ const en = {
     "This macOS build is unsigned. Updates can be downloaded, but must be installed manually.",
   updateMsiManual:
     "MSI installations require a manual update. Install the EXE version to enable in-app installation.",
+  appearance: "Appearance",
+  appearanceLight: "Light",
+  appearanceDark: "Dark",
+  preferencesFailed: "Could not load or save general settings.",
+  retryPreferences: "Retry",
   commonCategory: "General",
   securityCategory: "Security",
   selectOption: "Select an option",
@@ -46,6 +80,8 @@ const en = {
   refreshPlugins: "Refresh",
   addPlugin: "Add plugin",
   addFromNpm: "Add from npm",
+  npmAddress: "npm package or URL",
+  pluginNotFound: "Package or version not found.",
   pluginSource: "Package",
   plugins: "Plugins",
   installedPlugins: "Installed",
@@ -54,7 +90,11 @@ const en = {
   pluginCatalogHint: "Searches the npm pi-package catalog used by Pi.",
   noPluginMatches: "No matching packages.",
   pluginInstalled: "Installed",
-  installAndTrust: "Install and trust",
+  checkingPluginUpdates: "Checking for plugin updates…",
+  pluginUpdateCheckFailed: "Could not check plugin updates.",
+  retryPluginUpdates: "Check again",
+  updatePlugin: "Update",
+  installAndTrust: "Trust and install",
   enableAndTrust: "Enable and trust",
   disablePlugin: "Disable",
   noInstalledPlugins: "No plugins installed.",
@@ -161,16 +201,16 @@ const en = {
   workspaceLoadFailed: "Unable to load workspaces.",
   permissions: "Permissions",
   permissionReadOnly: "Read only",
-  permissionWorkspace: "Workspace changes",
+  permissionWorkspace: "Ask for approval",
   permissionFull: "Full access",
   permissionReadOnlyHint:
-    "Read workspace files; file changes and commands are blocked. Built-in browser operations do not require approval.",
+    "Read files and run read-only commands in the sandbox. Project writes and command networking are blocked. Built-in browser operations retain their no-approval behavior.",
   permissionWorkspaceHint:
-    "File changes and sandboxed commands require approval. Built-in browser operations do not. Sandboxed commands have no network access.",
+    "Default mode. Project changes and sandboxed commands run directly. Editing outside the project, command networking, and external tools require approval. Built-in browser operations do not.",
   permissionFullHint:
-    "Runs with the Agent process permissions. The desktop app supports this mode; web mode requires GRIMOIRE_ALLOW_FULL_ACCESS=true.",
+    "Access local files and the internet without application sandbox restrictions, within the operating-system account permissions.",
   permissionFullConfirm:
-    "Enable full access for this chat? Tools can access files outside the workspace and run commands without a sandbox or per-call approval.",
+    "Enable full access for this chat? The Agent can access local files and the internet and run commands without sandbox restrictions or per-call approval.",
   sandboxUnavailable: "Native sandbox unavailable; commands are disabled.",
   approvalRequired: "Approval required",
   approvalScope:
@@ -256,12 +296,32 @@ const en = {
   contextWindowPlaceholder: "Use SDK catalog when available",
   contextWindowHint:
     "Enter the model's documented window. Custom models show no percentage until this is known.",
+  addLocalFiles: "Add local files",
+  removeAttachment: "Remove attachment",
+  attachmentTooLarge: "Files must be 8 MiB or smaller.",
+  attachmentUploadFailed: "Could not attach this file. Please try again.",
+  useSkill: "Use Skill",
+  skillsLoading: "Loading Skills…",
+  noAvailableSkills: "No available Skills",
+  skillsLoadFailed: "Could not load Skills. Try opening the menu again.",
   send: "Send message",
   stop: "Stop generating",
+  insertMessage: "Insert now",
+  insertMessageHint: "Apply after the current model turn and tool calls finish",
+  queueMessage: "Queue message",
+  queueMessageHint: "Send automatically after this run finishes",
+  queuedSteering: "Applying next",
+  queuedFollowUps: "After this run",
+  editQueuedMessage: "Edit queued message",
+  editQueuedMessages: "Edit all queued messages",
+  editQueueFailed: "Could not retrieve queued messages. Please try again.",
   scrollBottom: "Scroll to bottom",
+  conversationNavigation: "Conversation navigation",
+  jumpToTurn: "Jump to turn {number}",
   assistant: "Grimoire",
   you: "You",
   copy: "Copy response",
+  copyUserMessage: "Copy original message",
   stopped: "Generation stopped",
   thinking: "Working on it…",
   toolRunning: "Running tool",
@@ -273,7 +333,10 @@ const en = {
   toolComplete: "Tool completed",
   toolFailed: "Tool interrupted",
   toolInput: "Input",
-  toolResult: "Result",
+  toolResult: "Output",
+  toolSuccess: "Succeeded",
+  toolWaiting: "Awaiting approval",
+  toolNoOutput: "No output",
   inspectTool: "Inspect dataset",
   storageReadError:
     "Could not restore local conversations. You can still start a new chat.",
@@ -329,10 +392,45 @@ const en = {
 
 type TranslationKey = keyof typeof en;
 const zh: Record<TranslationKey, string> = {
+  reasoningDetails: "思考过程",
+  activityDetails: "执行记录",
+  enableFullAccess: "启用完全权限",
+  noMatchingOptions: "没有匹配的选项",
+  enterOrSelectModel: "输入或选择模型",
+  searchOptions: "搜索…",
+  customModelId: "自定义模型 ID",
+  loadingModels: "正在获取模型…",
+  textAndImages: "文本和图片",
+  textOnly: "文本",
+  inputModalities: "输入能力",
+  maxOutputTokens: "最大输出（Token）",
+  contextWindowSize: "上下文大小（Token）",
+  manualCapabilities: "手动配置",
+  capabilityUnknown: "未知",
+  automatic: "自动",
+  useAutomatic: "恢复自动获取",
+  addModel: "添加模型",
+  configuredModels: "已配置模型",
+  defaultModel: "默认",
+  setDefaultModel: "设为默认",
+  removeModel: "移除模型",
+  probeCapabilities: "测试思考档位",
+  modelProbeConfirm:
+    "将向 {model} 发送短请求，每个候选档位一次，最多 7 次。会消耗供应商 Token，可能产生费用；不会发送聊天记录、文件或工具。接口接受的档位会自动勾选，点击“保存供应商”后生效。",
+  startModelProbe: "开始测试",
+  probingModel: "正在测试思考档位…",
+  modelProbeFailed: "请求失败，模型能力配置未改变",
+  modelCapabilities: "模型能力",
+  fetchModels: "获取模型",
+  customProvider: "自定义",
+  presetProvider: "提供商",
+  connectionType: "连接方式",
   viewUpdateNotes: "查看完整更新说明",
   updateNotesEmpty: "此版本暂无更新说明。",
   updates: "更新",
   currentVersion: "当前版本 {version}",
+  quitApplication: "退出 Grimoire",
+  quitApplicationFailed: "退出失败，请重试。",
   checkUpdates: "检查更新",
   downloadUpdate: "下载更新",
   updateChecking: "正在检查更新…",
@@ -354,6 +452,11 @@ const zh: Record<TranslationKey, string> = {
   updateMacUnsigned: "当前 macOS 版本未签名，可以下载更新，但需要手动安装。",
   updateMsiManual:
     "MSI 安装版需要手动更新，改用 EXE 安装版可启用应用内安装更新。",
+  appearance: "外观",
+  appearanceLight: "浅色",
+  appearanceDark: "深色",
+  preferencesFailed: "无法读取或保存通用设置。",
+  retryPreferences: "重试",
   commonCategory: "常规",
   securityCategory: "安全",
   selectOption: "选择一项",
@@ -366,6 +469,8 @@ const zh: Record<TranslationKey, string> = {
   refreshPlugins: "刷新",
   addPlugin: "添加插件",
   addFromNpm: "从 npm 添加",
+  npmAddress: "npm 包名或地址",
+  pluginNotFound: "未找到该插件或版本。",
   pluginSource: "插件包",
   plugins: "插件",
   installedPlugins: "已安装",
@@ -374,7 +479,11 @@ const zh: Record<TranslationKey, string> = {
   pluginCatalogHint: "搜索 Pi 目录使用的 npm pi-package 插件。",
   noPluginMatches: "没有找到匹配的插件。",
   pluginInstalled: "已安装",
-  installAndTrust: "安装并信任",
+  checkingPluginUpdates: "正在检查插件更新…",
+  pluginUpdateCheckFailed: "无法检查插件更新。",
+  retryPluginUpdates: "重新检查",
+  updatePlugin: "更新",
+  installAndTrust: "信任并安装",
   enableAndTrust: "启用并信任",
   disablePlugin: "停用",
   noInstalledPlugins: "还没有安装插件。",
@@ -475,16 +584,16 @@ const zh: Record<TranslationKey, string> = {
   workspaceLoadFailed: "无法加载工作区。",
   permissions: "权限",
   permissionReadOnly: "仅可查看",
-  permissionWorkspace: "工作区内修改",
-  permissionFull: "完全权限",
+  permissionWorkspace: "请求批准",
+  permissionFull: "完全访问",
   permissionReadOnlyHint:
-    "工作区文件只读，禁止修改文件和执行命令；内置浏览器操作无需审批。",
+    "只读模式，允许在沙箱内执行只读命令；禁止修改文件和命令联网。内置浏览器操作仍无需审批。",
   permissionWorkspaceHint:
-    "文件修改和沙箱命令需逐次审批，内置浏览器操作无需审批；沙箱命令禁止联网。",
+    "默认模式。项目内修改和沙箱命令直接执行；编辑项目外文件、命令联网和外部工具需批准。内置浏览器操作无需审批。",
   permissionFullHint:
-    "以 Agent 进程的账号权限执行。桌面版可直接选择，Web 版需要服务端设置 GRIMOIRE_ALLOW_FULL_ACCESS=true。",
+    "可访问互联网和本地文件，不受应用沙箱限制，仍受操作系统账号权限约束。",
   permissionFullConfirm:
-    "为此聊天启用完全权限？工具将能够访问工作区外的文件，并直接执行命令，不再使用沙箱或逐次审批。",
+    "为此对话启用完全访问？Agent 将能够访问互联网、本地文件并执行命令，不再受沙箱限制或逐次审批。",
   sandboxUnavailable: "轻量沙箱不可用，命令执行已禁用。",
   approvalRequired: "等待操作审批",
   approvalScope: "仅批准这一次具体操作，审批请求在五分钟后过期。",
@@ -558,12 +667,32 @@ const zh: Record<TranslationKey, string> = {
   contextWindowPlaceholder: "留空时使用 SDK 目录中的窗口大小",
   contextWindowHint:
     "请填写模型文档中的窗口大小。自定义模型窗口未知时，不显示占用百分比。",
+  addLocalFiles: "添加本地文件",
+  removeAttachment: "移除附件",
+  attachmentTooLarge: "单个文件不能超过 8 MiB。",
+  attachmentUploadFailed: "无法添加此文件，请重试。",
+  useSkill: "使用 Skill",
+  skillsLoading: "正在加载 Skills…",
+  noAvailableSkills: "暂无可用 Skill",
+  skillsLoadFailed: "无法加载 Skills，请重新打开菜单。",
   send: "发送消息",
   stop: "停止生成",
+  insertMessage: "立即插入",
+  insertMessageHint: "当前模型轮次及工具调用完成后处理",
+  queueMessage: "排队发送",
+  queueMessageHint: "本轮结束后自动发送",
+  queuedSteering: "即将插入",
+  queuedFollowUps: "等待本轮结束",
+  editQueuedMessage: "继续编辑",
+  editQueuedMessages: "编辑全部待发送消息",
+  editQueueFailed: "无法取回待发送消息，请重试。",
   scrollBottom: "滚动到底部",
+  conversationNavigation: "对话导航",
+  jumpToTurn: "跳转到第 {number} 轮对话",
   assistant: "Grimoire",
   you: "你",
   copy: "复制回复",
+  copyUserMessage: "复制原始文字",
   stopped: "已停止生成",
   thinking: "正在处理…",
   toolRunning: "正在调用工具",
@@ -575,7 +704,10 @@ const zh: Record<TranslationKey, string> = {
   toolComplete: "工具执行完成",
   toolFailed: "工具执行中断",
   toolInput: "输入",
-  toolResult: "结果",
+  toolResult: "输出",
+  toolSuccess: "成功",
+  toolWaiting: "等待审批",
+  toolNoOutput: "无输出",
   inspectTool: "查看数据集",
   storageReadError: "未能读取本地聊天记录，你仍然可以新建聊天。",
   storageWriteError: "浏览器存储空间不足，新的聊天记录暂时无法保存。",
@@ -624,15 +756,6 @@ const zh: Record<TranslationKey, string> = {
 
 export type Locale = "zh" | "en";
 const dictionaries = { en, zh };
-function initialLocale(): Locale {
-  try {
-    const stored = readStoredValue("locale");
-    if (stored === "en" || stored === "zh") return stored;
-  } catch {
-    /* Continue with the browser language when storage is unavailable. */
-  }
-  return navigator.language.startsWith("zh") ? "zh" : "en";
-}
 const I18nContext = createContext({
   locale: "zh" as Locale,
   setLocale: (_locale: Locale) => {},
@@ -640,18 +763,13 @@ const I18nContext = createContext({
 });
 
 export function I18nProvider({ children }: { children: ReactNode }) {
-  const [locale, updateLocale] = useState(initialLocale);
+  const { preferences, update } = useUserPreferences();
+  const locale = preferences.language;
   useEffect(() => {
     document.documentElement.lang = locale === "zh" ? "zh-CN" : "en";
   }, [locale]);
   const setLocale = (next: Locale) => {
-    updateLocale(next);
-    document.documentElement.lang = next === "zh" ? "zh-CN" : "en";
-    try {
-      localStorage.setItem(storageKeys.locale, next);
-    } catch {
-      /* Language switching also works without storage. */
-    }
+    void update({ language: next });
   };
   return (
     <I18nContext.Provider

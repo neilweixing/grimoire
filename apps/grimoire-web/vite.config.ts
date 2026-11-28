@@ -15,6 +15,12 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
-    proxy: { "/api": "http://127.0.0.1:3001" },
+    proxy: {
+      "/api": {
+        target: process.env.GRIMOIRE_AGENT_URL || "http://127.0.0.1:3001",
+        // The API compares Origin with the incoming host, including its port.
+        changeOrigin: false,
+      },
+    },
   },
 });

@@ -1,6 +1,7 @@
 import { CircleGauge, Database, Gauge } from "lucide-react";
 import { summarizeConversation } from "@grimoire/core";
 import { useI18n } from "./i18n";
+import { Tooltip } from "./tooltip";
 
 export type ConversationMetrics = ReturnType<typeof summarizeConversation>;
 const tokens = (value: number) =>
@@ -24,48 +25,54 @@ export function MetricsBar({ metrics }: { metrics: ConversationMetrics }) {
     metrics.totalTokens === null
       ? "—"
       : `${metrics.usageComplete ? "" : "≥"}${tokens(metrics.totalTokens)}`;
-  const contextTitle =
-    metrics.contextWindow !== null
-      ? `${t("metricsContextHint")} ${metrics.contextInputTokens === null ? "—" : number.format(metrics.contextInputTokens)} / ${number.format(metrics.contextWindow)} tok`
-      : `${t("lastInput")}: ${metrics.contextInputTokens === null ? "—" : number.format(metrics.contextInputTokens)} tok. ${t("contextUnknown")}`;
+  const stepLabel = `${metrics.rounds} ${t("rounds")} ${steps} ${t("steps")}`;
+  const speedLabel = `${metrics.tokensPerSecond === null ? "—" : number.format(metrics.tokensPerSecond)} tok/s`;
+  const tokenLabel = `${total} tok`;
+  const cacheLabel = `${t("cacheHit")} ${metrics.cacheHitRate === null ? "—" : `${number.format(metrics.cacheHitRate * 100)}%`}`;
+  const contextLabel = `${t("context")} ${metrics.contextUsedPercent === null ? "—" : `${number.format(metrics.contextUsedPercent)}%`}`;
   return (
     <div className="composer-metrics" aria-label={t("runMetrics")}>
-      <span className="metric-group">
-        <Gauge size={13} aria-hidden="true" />
-        <span title={t("metricsStepsHint")}>
-          {metrics.rounds} {t("rounds")} {steps} {t("steps")}
+      <Tooltip content={`${stepLabel} · ${speedLabel}`}>
+        <span
+          className="metric-group"
+          tabIndex={0}
+          role="group"
+          aria-label={`${stepLabel} · ${speedLabel}`}
+        >
+          <Gauge size={14} aria-hidden="true" />
+          <span className="metric-details">
+            {stepLabel}
+            <span className="metric-separator"> · </span>
+            {speedLabel}
+          </span>
         </span>
-        <span className="metric-separator">·</span>
-        <span title={t("metricsSpeedHint")}>
-          {metrics.tokensPerSecond === null
-            ? "—"
-            : number.format(metrics.tokensPerSecond)}{" "}
-          tok/s
+      </Tooltip>
+      <Tooltip content={`${tokenLabel} · ${cacheLabel}`}>
+        <span
+          className="metric-group"
+          tabIndex={0}
+          role="group"
+          aria-label={`${tokenLabel} · ${cacheLabel}`}
+        >
+          <Database size={14} aria-hidden="true" />
+          <span className="metric-details">
+            {tokenLabel}
+            <span className="metric-separator"> · </span>
+            {cacheLabel}
+          </span>
         </span>
-      </span>
-      <span className="metric-group">
-        <Database size={12} aria-hidden="true" />
-        <span title={t("metricsTokensHint")}>{total} tok</span>
-        <span className="metric-separator">·</span>
-        <span title={t("metricsCacheHint")}>
-          {t("cacheHit")}{" "}
-          {metrics.cacheHitRate === null
-            ? "—"
-            : `${number.format(metrics.cacheHitRate * 100)}%`}
+      </Tooltip>
+      <Tooltip content={contextLabel}>
+        <span
+          className="metric-group"
+          tabIndex={0}
+          role="group"
+          aria-label={contextLabel}
+        >
+          <CircleGauge size={14} aria-hidden="true" />
+          <span className="metric-details">{contextLabel}</span>
         </span>
-      </span>
-      <span
-        className="metric-group"
-        title={`${metrics.model ? `${metrics.model} · ` : ""}${contextTitle}`}
-      >
-        <CircleGauge size={13} aria-hidden="true" />
-        <span>
-          {t("context")}{" "}
-          {metrics.contextUsedPercent === null
-            ? "—"
-            : `${number.format(metrics.contextUsedPercent)}%`}
-        </span>
-      </span>
+      </Tooltip>
     </div>
   );
 }

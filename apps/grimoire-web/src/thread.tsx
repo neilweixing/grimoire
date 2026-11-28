@@ -4,37 +4,56 @@ import {
   ComposerPrimitive,
   MessagePrimitive,
   ThreadPrimitive,
-  groupPartByType,
   useAuiState,
+  useAui,
+  useSmooth,
   type ToolCallMessagePartProps,
   type ReasoningMessagePartProps,
   type TextMessagePartProps,
 } from "@assistant-ui/react";
+import { useActionBarCopy } from "@assistant-ui/core/react";
+import { writeClipboardText } from "./clipboard";
+import {
+  userCopyText,
+  assistantCopyText,
+  splitSkillInvocation,
+} from "./message-copy";
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import {
   ArrowDown,
-  ArrowUp,
-  CheckCheck,
+  Check,
   ChevronRight,
   Copy,
+  FileText,
   LoaderCircle,
-  MessageSquarePlus,
-  Plus,
-  Settings2,
   Square,
   Terminal,
   TriangleAlert,
 } from "lucide-react";
 import remarkGfm from "remark-gfm";
 import { usePiRuntimeExtras } from "@assistant-ui/react-pi";
-import type { ProviderSettings, ThinkingLevel } from "@grimoire/core";
+import {
+  splitAttachmentReferences,
+  type ProviderSettings,
+  type ThinkingLevel,
+} from "@grimoire/core";
 import { useI18n } from "./i18n";
 import { MetricsBar } from "./metrics-bar";
 import { ModelPicker } from "./model-picker";
 import { ExecutionControls, ApprovalRequests } from "./execution-controls";
 import { usePiMetrics } from "./pi-metrics";
-import { api } from "./api";
-import { useWorkspace } from "./workspace";
+import { useWorkspace, workspaceApi } from "./workspace";
+import { formatToolOutput, presentToolInput } from "./tool-presentation";
+import { ComposerQueue, ComposerSendControls } from "./composer-send-controls";
+import { ComposerActions } from "./composer-actions";
+import { ComposerFiles } from "./composer-attachments";
+import { ComposerSkillsProvider } from "./composer-skills";
+import { ComposerSkillInput } from "./composer-skill-input";
+import { ConversationNavigation } from "./conversation-navigation";
+import {
+  splitAssistantActivity,
+  type ActivityPhase,
+} from "./assistant-activity";
 
 export function GrimoireMark({ small = false }: { small?: boolean }) {
   return (
@@ -49,7 +68,12 @@ export function GrimoireMark({ small = false }: { small?: boolean }) {
 
 function Markdown() {
   return (
-    <MarkdownTextPrimitive className="markdown" remarkPlugins={[remarkGfm]} />
+    <MarkdownTextPrimitive
+      className="markdown"
+      remarkPlugins={[remarkGfm]}
+      smooth={{ drainMs: 150, minCommitMs: 32 }}
+      defer
+    />
   );
 }
 function Welcome() {
@@ -64,72 +88,89 @@ function Welcome() {
     </div>
   );
 }
-function Reasoning({ text }: ReasoningMessagePartProps) {
+function Reasoning({ text, status }: ReasoningMessagePartProps) {
   const { t } = useI18n();
+  const reasoning = useSmooth(
+    { type: "reasoning", text, status },
+    { drainMs: 150, minCommitMs: 32 },
+  );
   return (
-    <details className="reasoning">
-      <summary>{t("thinkingDepth")}</summary>
-      <div>{text}</div>
-    </details>
+    <div className="reasoning-step">
+      <span className="reasoning-label">{t("reasoningDetails")}</span>
+      <div className="reasoning-text">{reasoning.text}</div>
+    </div>
   );
 }
 
-const groupToolActivity = groupPartByType({
-  "tool-call": ["group-activity"],
-});
-
 function ToolActivity({
-  indices,
-  running,
-  waiting,
-  incomplete,
+  count,
+  phase,
+  hasErrors,
+  hasReasoning,
   children,
 }: PropsWithChildren<{
-  indices: readonly number[];
-  running: boolean;
-  waiting: boolean;
-  incomplete: boolean;
+  count: number;
+  phase: ActivityPhase;
+  hasErrors: boolean;
+  hasReasoning: boolean;
 }>) {
   const { t } = useI18n();
-  const hasErrors = useAuiState((state) =>
-    indices.some((index) => {
-      const part = state.message.content[index];
-      return part?.type === "tool-call" && part.isError;
-    }),
-  );
-  const hasIncomplete = incomplete || hasErrors;
-  const count = indices.length;
+  const [open, setOpen] = useState(false);
+  const previousPhase = useRef(phase);
+  useEffect(() => {
+    if (
+      previousPhase.current !== phase &&
+      (phase === "answering" || phase === "settled")
+    )
+      setOpen(false);
+    previousPhase.current = phase;
+  }, [phase]);
+  const running = phase === "thinking" || phase === "tools";
+  const label =
+    phase === "waiting"
+      ? t("activityWaiting")
+      : running
+        ? count
+          ? t("activityRunning")
+          : t("thinking")
+        : hasErrors
+          ? t("activityIncomplete")
+          : count
+            ? t("activityComplete")
+            : hasReasoning
+              ? t("reasoningDetails")
+              : t("activityDetails");
   return (
-    <details className={`tool-activity ${hasIncomplete ? "tool-error" : ""}`}>
+    <details
+      className={`tool-activity ${hasErrors ? "tool-error" : ""}`}
+      open={open}
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+    >
       <summary>
-        {running ? (
+        {phase === "waiting" ? (
+          <Square size={13} />
+        ) : running ? (
           <LoaderCircle size={14} className="spin" />
-        ) : hasIncomplete ? (
+        ) : hasErrors ? (
           <TriangleAlert size={14} />
-        ) : waiting ? (
-          <Square size={12} />
-        ) : (
-          <CheckCheck size={14} />
-        )}
-        <span>
-          {t(
-            running
-              ? "activityRunning"
-              : waiting
-                ? "activityWaiting"
-                : hasIncomplete
-                  ? "activityIncomplete"
-                  : "activityComplete",
-          ).replace("{count}", String(count))}
+        ) : null}
+        <span className="activity-label" role="status">
+          {label.replace("{count}", String(count))}
         </span>
         <ChevronRight size={14} className="activity-chevron" />
       </summary>
-      <div className="tool-activity-content">{children}</div>
+      {open && <div className="tool-activity-content">{children}</div>}
     </details>
   );
 }
 
-function ToolCall({
+const assistantParts = {
+  Text: Markdown,
+  Reasoning,
+  tools: { Fallback: ToolCall },
+};
+
+export function ToolCall({
   toolName,
   args,
   result,
@@ -137,94 +178,212 @@ function ToolCall({
   status,
 }: ToolCallMessagePartProps) {
   const { t } = useI18n();
+  const [open, setOpen] = useState(false);
   const pending = status.type === "running";
   const interrupted = isError || status.type === "incomplete";
   const waiting = status.type === "requires-action";
+  const presentation = presentToolInput(toolName, args);
   const skillPath =
     toolName === "read" && typeof args?.path === "string"
       ? args.path.match(/(?:^|\/)([^/]+)\/SKILL\.md$/i)
       : null;
+  const label = skillPath
+    ? `${t("readSkill")} · ${skillPath[1]}`
+    : toolName === "inspect_dataset"
+      ? t("inspectTool")
+      : presentation.summary;
+  const stateLabel = pending
+    ? t("toolRunning")
+    : interrupted
+      ? t("toolFailed")
+      : waiting
+        ? t("toolWaiting")
+        : t("toolSuccess");
+  const StateIcon = pending
+    ? LoaderCircle
+    : interrupted
+      ? TriangleAlert
+      : waiting
+        ? Square
+        : Check;
+
   return (
-    <details className={`tool-call ${interrupted ? "tool-error" : ""}`}>
+    <details
+      className={`tool-call ${interrupted ? "tool-error" : ""}`}
+      open={open}
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+    >
       <summary>
-        {pending ? (
-          <LoaderCircle size={15} className="spin" />
-        ) : interrupted ? (
-          <TriangleAlert size={15} />
-        ) : waiting ? (
-          <Square size={12} />
+        {presentation.shell ? (
+          <Terminal size={15} />
         ) : (
-          <CheckCheck size={15} />
+          <StateIcon size={15} className={pending ? "spin" : undefined} />
         )}
-        <span>
-          {skillPath
-            ? `${t("readSkill")} · ${skillPath[1]}`
-            : toolName === "inspect_dataset"
-              ? t("inspectTool")
-              : toolName}
-        </span>
-        <span className="tool-status">
-          {pending
-            ? t("toolRunning")
-            : interrupted
-              ? t("toolFailed")
-              : waiting
-                ? t("activityWaiting").replace("{count}", "1")
-                : t("toolComplete")}
+        <span
+          className={presentation.shell ? "tool-command-summary" : undefined}
+        >
+          {label}
         </span>
         <ChevronRight size={13} className="activity-chevron" />
       </summary>
-      <div className="tool-detail">
-        <strong>{t("toolInput")}</strong>
-        <pre>{JSON.stringify(args, null, 2)}</pre>
-        {result !== undefined && (
-          <>
-            <strong>{t("toolResult")}</strong>
-            <pre>
-              {typeof result === "string"
-                ? result
-                : JSON.stringify(result, null, 2)}
-            </pre>
-          </>
-        )}
-      </div>
+      {open && (
+        <div className="tool-detail">
+          <div className="tool-detail-header">
+            {presentation.shell ? "Shell" : toolName}
+          </div>
+          <div className="tool-io">
+            <pre className="tool-input">{presentation.input}</pre>
+            {result !== undefined && (
+              <>
+                <pre className="tool-output">
+                  {formatToolOutput(result) || t("toolNoOutput")}
+                </pre>
+              </>
+            )}
+          </div>
+          <div className="tool-detail-status" role="status">
+            <StateIcon size={14} className={pending ? "spin" : undefined} />
+            <span>{stateLabel}</span>
+          </div>
+        </div>
+      )}
     </details>
   );
 }
 
-function UserMessage() {
+function MessageTime() {
+  const { locale } = useI18n();
+  const createdAt = useAuiState((state) => state.message.createdAt);
+  if (!createdAt || !Number.isFinite(createdAt.getTime())) return null;
   return (
-    <MessagePrimitive.Root className="message user-message">
+    <time
+      dateTime={createdAt.toISOString()}
+      title={new Intl.DateTimeFormat(locale, {
+        dateStyle: "medium",
+        timeStyle: "medium",
+      }).format(createdAt)}
+    >
+      {new Intl.DateTimeFormat(locale, {
+        hour: "2-digit",
+        minute: "2-digit",
+        hourCycle: "h23",
+      }).format(createdAt)}
+    </time>
+  );
+}
+
+function MessageCopyButton({
+  text,
+  disabled = false,
+  user = false,
+}: {
+  text?: string;
+  disabled?: boolean;
+  user?: boolean;
+}) {
+  const { t } = useI18n();
+  const {
+    copy,
+    isCopied,
+    disabled: unavailable,
+  } = useActionBarCopy({
+    copyToClipboard: (value) => writeClipboardText(text ?? value),
+  });
+  const label = isCopied
+    ? t("copied")
+    : user
+      ? t("copyUserMessage")
+      : t("copy");
+  return (
+    <button
+      type="button"
+      className="icon-button"
+      disabled={disabled || unavailable}
+      aria-label={label}
+      title={label}
+      data-copied={isCopied ? "true" : undefined}
+      onClick={copy}
+    >
+      {isCopied ? <Check size={14} /> : <Copy size={14} />}
+    </button>
+  );
+}
+
+export function UserMessage() {
+  const messageId = useAuiState((state) => state.message.id);
+  const messageContent = useAuiState((state) => state.message.content);
+  const originalText = useAuiState(
+    (state) => state.message.metadata.custom.originalText,
+  );
+  const copyText = userCopyText(
+    messageContent
+      .flatMap((part) => (part.type === "text" ? [part.text] : []))
+      .join("\n\n"),
+    originalText,
+  );
+  return (
+    <MessagePrimitive.Root
+      className="message user-message"
+      data-turn-id={messageId}
+    >
       <div className="user-content">
         <MessagePrimitive.Parts components={{ Text: UserText }} />
       </div>
+      <ActionBarPrimitive.Root className="message-actions user-message-actions">
+        <MessageTime />
+        <MessageCopyButton user text={copyText} disabled={!copyText} />
+      </ActionBarPrimitive.Root>
     </MessagePrimitive.Root>
   );
 }
 
 function UserText({ text }: TextMessagePartProps) {
   const { t } = useI18n();
-  const skill = text.match(
-    /^<skill name="([^"]+)" location="[^"]+">\n([\s\S]*?)\n<\/skill>(?:\n\n([\s\S]*))?$/,
+  const originalText = useAuiState(
+    (state) => state.message.metadata.custom.originalText,
   );
-  if (!skill) return <span>{text}</span>;
+  const skill = splitSkillInvocation(text, originalText);
+  const attachmentView = splitAttachmentReferences(skill?.query ?? text);
+  text = attachmentView.text;
+  const files =
+    attachmentView.files.length > 0 ? (
+      <div className="sent-files">
+        {attachmentView.files.map((file) => (
+          <span className="sent-file" key={file.id}>
+            <FileText size={16} />
+            {file.name}
+          </span>
+        ))}
+      </div>
+    ) : null;
+  if (!skill)
+    return (
+      <>
+        {files}
+        <span>{text}</span>
+      </>
+    );
   return (
     <>
-      <span>{skill[3] || `/skill:${skill[1]}`}</span>
+      {files}
+      <span>{text || `/skill:${skill.name}`}</span>
       <details className="skill-invocation">
         <summary>
-          {t("readSkill")} · {skill[1]}
+          {t("readSkill")} · {skill.name}
         </summary>
-        <pre>{skill[2]}</pre>
+        <pre>{skill.instructions}</pre>
       </details>
     </>
   );
 }
 
-function AssistantMessage() {
+export function AssistantMessage() {
   const { t } = useI18n();
   const status = useAuiState((state) => state.message.status);
-  const empty = useAuiState((state) => state.message.content.length === 0);
+  const parts = useAuiState((state) => state.message.parts);
+  const view = splitAssistantActivity(parts, status);
+  const copyText = assistantCopyText(parts, status);
+  const empty = parts.length === 0;
   const dataOnly = useAuiState(
     (state) =>
       state.message.content.length > 0 &&
@@ -240,34 +399,38 @@ function AssistantMessage() {
             {t("thinking")}
           </span>
         )}
-        <MessagePrimitive.GroupedParts
-          groupBy={groupToolActivity}
-          indicator="never"
+        {view.activity.length > 0 && (
+          <ToolActivity
+            count={view.toolCount}
+            phase={view.phase}
+            hasErrors={view.hasErrors}
+            hasReasoning={view.hasReasoning}
+          >
+            {view.activity.map((index) => (
+              <MessagePrimitive.PartByIndex
+                key={
+                  parts[index]?.type === "tool-call"
+                    ? parts[index].toolCallId
+                    : index
+                }
+                index={index}
+                components={assistantParts}
+              />
+            ))}
+          </ToolActivity>
+        )}
+        <div
+          className="assistant-answer"
+          aria-busy={view.phase === "answering"}
         >
-          {({ part, children }) => {
-            switch (part.type) {
-              case "group-activity":
-                return (
-                  <ToolActivity
-                    indices={part.indices}
-                    running={part.counts.running > 0}
-                    waiting={part.counts.requiresAction > 0}
-                    incomplete={part.counts.incomplete > 0}
-                  >
-                    {children}
-                  </ToolActivity>
-                );
-              case "text":
-                return <Markdown />;
-              case "reasoning":
-                return <Reasoning {...part} />;
-              case "tool-call":
-                return <ToolCall {...part} />;
-              default:
-                return null;
-            }
-          }}
-        </MessagePrimitive.GroupedParts>
+          {view.answer.map((index) => (
+            <MessagePrimitive.PartByIndex
+              key={index}
+              index={index}
+              components={assistantParts}
+            />
+          ))}
+        </div>
         {status?.type === "incomplete" && status.reason === "error" && (
           <div className="error-banner" role="alert">
             <TriangleAlert size={15} />
@@ -282,14 +445,12 @@ function AssistantMessage() {
             {t("stopped")}
           </p>
         )}
-        <ActionBarPrimitive.Root hideWhenRunning className="message-actions">
-          <ActionBarPrimitive.Copy
-            className="icon-button"
-            aria-label={t("copy")}
-          >
-            <Copy size={14} />
-          </ActionBarPrimitive.Copy>
-        </ActionBarPrimitive.Root>
+        {view.hasAnswer && (
+          <ActionBarPrimitive.Root hideWhenRunning className="message-actions">
+            <MessageCopyButton text={copyText} disabled={!copyText} />
+            {status?.type === "complete" && <MessageTime />}
+          </ActionBarPrimitive.Root>
+        )}
       </div>
     </MessagePrimitive.Root>
   );
@@ -301,7 +462,6 @@ export function ChatThread({
   onSelectModel,
   modelPending,
   onConfigureModel,
-  onNewChat,
   ensureThread,
 }: {
   isDemo: boolean;
@@ -309,12 +469,12 @@ export function ChatThread({
   onSelectModel: (providerId: string, model: string) => Promise<void>;
   modelPending: boolean;
   onConfigureModel: () => void;
-  onNewChat: () => void;
   ensureThread: () => Promise<string>;
 }) {
   const { t } = useI18n();
-  const actions = useRef<HTMLDetailsElement>(null);
-  const composerInput = useRef<HTMLTextAreaElement>(null);
+  const workspace = useWorkspace();
+  const aui = useAui();
+  const viewport = useRef<HTMLDivElement>(null);
   const running = useAuiState((state) => state.thread.isRunning);
   const extras = usePiRuntimeExtras();
   const metrics = usePiMetrics();
@@ -332,7 +492,8 @@ export function ChatThread({
   const modelKey = `${providerId}/${modelId}`;
   useEffect(() => {
     const controller = new AbortController();
-    void api<{ levels: ThinkingLevel[] }>(
+    void workspaceApi<{ levels: ThinkingLevel[] }>(
+      workspace.id,
       `/pi/thinking-levels?${new URLSearchParams({ provider: providerId, modelId })}`,
       { signal: controller.signal },
     )
@@ -342,7 +503,7 @@ export function ChatThread({
       })
       .catch(() => {});
     return () => controller.abort();
-  }, [providerId, modelId]);
+  }, [workspace.id, providerId, modelId, settings.providers]);
   const currentSettings = config?.provider
     ? {
         ...settings,
@@ -351,14 +512,14 @@ export function ChatThread({
         thinkingLevels:
           capabilities?.key === modelKey
             ? capabilities.levels
-            : (["off"] as ThinkingLevel[]),
+            : ([] as ThinkingLevel[]),
       }
     : {
         ...settings,
         thinkingLevels:
           capabilities?.key === modelKey
             ? capabilities.levels
-            : (["off"] as ThinkingLevel[]),
+            : ([] as ThinkingLevel[]),
       };
   const currentThinking = config?.thinkingLevel as ThinkingLevel | undefined;
 
@@ -366,26 +527,30 @@ export function ChatThread({
     providerId === "demo" ||
     !settings.providers.some((provider) => provider.id === providerId);
   const unavailable = extras.readiness && extras.readiness.state !== "ready";
+  const sendDisabled = modelPending || Boolean(unavailable) || needsProvider;
   return (
     <ThreadPrimitive.Root className="thread">
-      <ThreadPrimitive.Viewport className="thread-viewport">
-        <ThreadPrimitive.Empty>
-          <Welcome />
-        </ThreadPrimitive.Empty>
-        <div className="messages">
-          <ThreadPrimitive.Messages
-            components={{ UserMessage, AssistantMessage }}
-          />
-        </div>
-        <ThreadPrimitive.ViewportFooter className="viewport-footer">
-          <ThreadPrimitive.ScrollToBottom
-            className="scroll-bottom icon-button"
-            aria-label={t("scrollBottom")}
-          >
-            <ArrowDown size={17} />
-          </ThreadPrimitive.ScrollToBottom>
-        </ThreadPrimitive.ViewportFooter>
-      </ThreadPrimitive.Viewport>
+      <div className="thread-body">
+        <ThreadPrimitive.Viewport className="thread-viewport" ref={viewport}>
+          <ThreadPrimitive.Empty>
+            <Welcome />
+          </ThreadPrimitive.Empty>
+          <div className="messages">
+            <ThreadPrimitive.Messages
+              components={{ UserMessage, AssistantMessage }}
+            />
+          </div>
+          <ThreadPrimitive.ViewportFooter className="viewport-footer">
+            <ThreadPrimitive.ScrollToBottom
+              className="scroll-bottom icon-button"
+              aria-label={t("scrollBottom")}
+            >
+              <ArrowDown size={17} />
+            </ThreadPrimitive.ScrollToBottom>
+          </ThreadPrimitive.ViewportFooter>
+        </ThreadPrimitive.Viewport>
+        <ConversationNavigation viewport={viewport} />
+      </div>
       <div className="composer-wrap">
         <ApprovalRequests />
         {unavailable && (
@@ -393,97 +558,51 @@ export function ChatThread({
             {t("readinessUnavailable")}
           </p>
         )}
-        {extras.queue.followUp.length + extras.queue.steering.length > 0 && (
-          <p className="demo-notice">
-            {t("queuedMessages")}:{" "}
-            {extras.queue.followUp.length + extras.queue.steering.length}
-          </p>
-        )}
-
-        <ComposerPrimitive.Root className="composer">
-          <ComposerPrimitive.Input
-            ref={composerInput}
-            autoFocus
-            disabled={needsProvider}
-            className="composer-input"
-            placeholder={t(needsProvider ? "selectModel" : "placeholder")}
-            aria-label={t("placeholder")}
-            minRows={1}
-            maxRows={7}
-            onHeightChange={(height) => {
-              if (composerInput.current)
-                composerInput.current.style.overflowY =
-                  height >= 168 ? "auto" : "hidden";
-            }}
-          />
-          <div className="composer-bottom">
-            <div className="composer-left">
-              <details className="composer-more" ref={actions}>
-                <summary aria-label={t("moreActions")} title={t("moreActions")}>
-                  <Plus size={18} />
-                </summary>
-                <div className="composer-action-menu">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      actions.current?.removeAttribute("open");
-                      onNewChat();
-                    }}
-                  >
-                    <MessageSquarePlus size={15} />
-                    {t("newChat")}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      actions.current?.removeAttribute("open");
-                      onConfigureModel();
-                    }}
-                  >
-                    <Settings2 size={15} />
-                    {t("providersTitle")}
-                  </button>
-                </div>
-              </details>
-              <ExecutionControls ensureThread={ensureThread} />
-            </div>
-            <div className="composer-controls">
-              <ModelPicker
-                settings={currentSettings}
-                thinkingLevel={currentThinking ?? "off"}
-                onThinkingLevelChange={async (level) => {
-                  if (level === "max")
-                    throw new Error(t("thinkingLevelUnavailable"));
-                  await extras.setThinkingLevel(level);
-                }}
-                onSelectModel={async (provider, modelId) => {
-                  await extras.setModel({ provider, modelId });
-                  await onSelectModel(provider, modelId);
-                }}
-                onConfigureModel={onConfigureModel}
-                pending={modelPending || running}
+        <ComposerSkillsProvider>
+          <ComposerPrimitive.TriggerPopoverRoot>
+            <ComposerPrimitive.Root
+              className="composer"
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (!sendDisabled && aui.composer.getState().canSend)
+                  aui.composer.send({ steer: false });
+              }}
+            >
+              <ComposerQueue
+                steering={extras.queue.steering}
+                followUp={extras.queue.followUp}
+                takeBack={extras.clearQueue}
               />
-              {running ? (
-                <ComposerPrimitive.Cancel
-                  className="send-button"
-                  aria-label={t("stop")}
-                >
-                  <Square size={15} fill="currentColor" />
-                </ComposerPrimitive.Cancel>
-              ) : (
-                <ComposerPrimitive.Send
-                  disabled={
-                    modelPending || Boolean(unavailable) || needsProvider
-                  }
-                  className="send-button"
-                  aria-label={t("send")}
-                >
-                  <ArrowUp size={20} />
-                </ComposerPrimitive.Send>
-              )}
-            </div>
-          </div>
-        </ComposerPrimitive.Root>
+              <ComposerFiles />
+              <ComposerSkillInput
+                disabled={needsProvider}
+                placeholder={t(needsProvider ? "selectModel" : "placeholder")}
+              />
+              <div className="composer-bottom">
+                <div className="composer-left">
+                  <ComposerActions />
+                  <ExecutionControls ensureThread={ensureThread} />
+                </div>
+                <div className="composer-controls">
+                  <ModelPicker
+                    settings={currentSettings}
+                    thinkingLevel={currentThinking ?? "off"}
+                    onThinkingLevelChange={async (level) => {
+                      await extras.setThinkingLevel(level);
+                    }}
+                    onSelectModel={async (provider, modelId) => {
+                      await extras.setModel({ provider, modelId });
+                      await onSelectModel(provider, modelId);
+                    }}
+                    onConfigureModel={onConfigureModel}
+                    pending={modelPending || running}
+                  />
+                  <ComposerSendControls disabled={sendDisabled} />
+                </div>
+              </div>
+            </ComposerPrimitive.Root>
+          </ComposerPrimitive.TriggerPopoverRoot>
+        </ComposerSkillsProvider>
         <MetricsBar metrics={metrics} />
       </div>
     </ThreadPrimitive.Root>

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { LoaderCircle, Trash2, X } from "lucide-react";
+import { LoaderCircle, Trash2, X, type LucideIcon } from "lucide-react";
 import { useI18n } from "./i18n";
 
 export function ConfirmDialog({
@@ -11,6 +11,8 @@ export function ConfirmDialog({
   error,
   onCancel,
   onConfirm,
+  icon: Icon = Trash2,
+  tone = "danger",
 }: {
   open: boolean;
   title: string;
@@ -18,13 +20,19 @@ export function ConfirmDialog({
   confirmLabel: string;
   pending: boolean;
   error?: string;
+  icon?: LucideIcon;
+  tone?: "danger" | "primary";
   onCancel: () => void;
   onConfirm: () => void;
 }) {
   const { t } = useI18n();
   const ref = useRef<HTMLDialogElement>(null);
+  const cancel = useRef<HTMLButtonElement>(null);
   useEffect(() => {
-    if (open && !ref.current?.open) ref.current?.showModal();
+    if (open && !ref.current?.open) {
+      ref.current?.showModal();
+      cancel.current?.focus({ preventScroll: true });
+    }
     if (!open && ref.current?.open) ref.current?.close();
   }, [open]);
   return (
@@ -43,7 +51,7 @@ export function ConfirmDialog({
       <div className="project-dialog-content">
         <header>
           <div className="confirm-dialog-icon">
-            <Trash2 size={21} />
+            <Icon size={21} />
           </div>
           <button
             type="button"
@@ -65,6 +73,7 @@ export function ConfirmDialog({
         <footer>
           <button
             type="button"
+            ref={cancel}
             className="project-cancel"
             autoFocus
             disabled={pending}
@@ -74,7 +83,7 @@ export function ConfirmDialog({
           </button>
           <button
             type="button"
-            className="confirm-danger"
+            className={tone === "danger" ? "confirm-danger" : "primary-button"}
             disabled={pending}
             onClick={onConfirm}
           >

@@ -171,6 +171,7 @@ function WorkspaceApp({
   }, [target, workspace.id]);
   const [catalog, setCatalog] = useState<WorkspaceChat[]>([]);
   const [catalogError, setCatalogError] = useState(false);
+  const [catalogRevision, setCatalogRevision] = useState(0);
   const chatVersion = JSON.stringify(
     chat.conversations.map((conversation) => [
       conversation.remoteId,
@@ -207,7 +208,7 @@ function WorkspaceApp({
       });
     });
     return () => controller.abort();
-  }, [workspaces, workspace.id, chatVersion]);
+  }, [workspaces, workspace.id, chatVersion, catalogRevision]);
   const allChats: WorkspaceChat[] = [
     ...catalog.filter(
       (conversation) =>
@@ -267,10 +268,11 @@ function WorkspaceApp({
       })
       .catch(() => {});
   }, [workspace.path, chat.currentRemoteId]);
-  const [deletingChat, setDeletingChat] = useState<{
-    id: string;
-    title: string;
-  }>();
+  const [deletingChat, setDeletingChat] = useState<WorkspaceChat>();
+  const requestDeleteChat = (conversation: WorkspaceChat) => {
+    setDeleteError("");
+    setDeletingChat(conversation);
+  };
   const [deletePending, setDeletePending] = useState(false);
   const [deleteError, setDeleteError] = useState("");
   const [connection, setConnection] = useState<
@@ -346,6 +348,7 @@ function WorkspaceApp({
             chats={allChats}
             currentChatId={chat.currentRemoteId}
             onOpenChat={onOpenChat}
+            onDeleteChat={requestDeleteChat}
             onNewChat={onNewChat}
             onRenamed={onRenamed}
             onDeleted={onDeleted}
@@ -380,23 +383,15 @@ function WorkspaceApp({
                 >
                   <span>{conversation.title || t("newChat")}</span>
                 </button>
-                {conversation.workspaceId === workspace.id && (
-                  <button
-                    className="chat-delete icon-button"
-                    aria-label={`${t("deleteChat")}: ${conversation.title || t("newChat")}`}
-                    onClick={() => {
-                      const item = chat.conversations.find(
-                        (entry) => entry.remoteId === conversation.id,
-                      );
-                      if (item) {
-                        setDeleteError("");
-                        setDeletingChat(item);
-                      }
-                    }}
-                  >
-                    <Trash2 size={13} />
-                  </button>
-                )}
+                <button
+                  type="button"
+                  className="chat-delete icon-button"
+                  aria-label={`${t("deleteChat")}: ${conversation.title || t("newChat")}`}
+                  title={t("deleteChat")}
+                  onClick={() => requestDeleteChat(conversation)}
+                >
+                  <Trash2 size={13} />
+                </button>
               </div>
             ))}
           </nav>
@@ -432,7 +427,6 @@ function WorkspaceApp({
               onSelectModel={selectModel}
               modelPending={modelPending}
               onConfigureModel={() => setSettingsSection("providers")}
-              onNewChat={createChat}
               ensureThread={chat.ensureThread}
             />
           )}
@@ -458,15 +452,51 @@ function WorkspaceApp({
         pending={deletePending}
         error={deleteError}
         onCancel={() => setDeletingChat(undefined)}
-        onConfirm={() => {
-          if (!deletingChat) return;
+        onConfirm={async () => {
+          if (!deletingChat || deletePending) return;
+          const target = deletingChat;
+          const wasActive =
+            target.workspaceId === workspace.id &&
+            target.id === chat.currentRemoteId;
           setDeletePending(true);
           setDeleteError("");
-          void chat
-            .deleteChat(deletingChat.id)
-            .then(() => setDeletingChat(undefined))
-            .catch(() => setDeleteError(t("deleteChatFailed")))
-            .finally(() => setDeletePending(false));
+          try {
+            if (target.workspaceId === workspace.id) {
+              const item = chat.conversations.find(
+                (entry) => entry.remoteId === target.id,
+              );
+              if (!item) throw new Error("Chat is not available");
+              await chat.deleteChat(item.id);
+            } else {
+              await workspaceApi(
+                target.workspaceId,
+                `/pi/threads/${encodeURIComponent(target.id)}`,
+                { method: "DELETE" },
+              );
+            }
+            setCatalog((previous) =>
+              previous.filter(
+                (entry) =>
+                  entry.workspaceId !== target.workspaceId ||
+                  entry.id !== target.id,
+              ),
+            );
+            setCatalogRevision((revision) => revision + 1);
+            try {
+              const key = `grimoire.pi.activeThread.${target.workspaceId}`;
+              if (localStorage.getItem(key) === target.id)
+                localStorage.removeItem(key);
+            } catch {}
+            if (wasActive) {
+              setPluginsOpen(false);
+              await chat.runtime.threads.switchToNewThread();
+            }
+            setDeletingChat(undefined);
+          } catch {
+            setDeleteError(t("deleteChatFailed"));
+          } finally {
+            setDeletePending(false);
+          }
         }}
       />
     </AssistantRuntimeProvider>
@@ -625,6 +655,7 @@ function EmptyProjects({
           currentChatId=""
           onSelect={() => {}}
           onOpenChat={() => {}}
+          onDeleteChat={() => {}}
           onNewChat={add}
           onRenamed={() => {}}
           onDeleted={() => {}}
