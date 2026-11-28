@@ -52,7 +52,7 @@ type BrowserCommand = {
 declare global {
   interface Window {
     grimoireDesktop?: {
-      app?: { quit(): Promise<void> };
+      app?: { quit(): Promise<void>; clearCache?(): Promise<void> };
       clipboard?: { writeText(text: string): Promise<void> };
       updates?: DesktopUpdateBridge;
       browser: {

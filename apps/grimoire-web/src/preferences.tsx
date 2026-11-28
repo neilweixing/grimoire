@@ -30,6 +30,7 @@ export async function loadUserPreferences(): Promise<{
           document.documentElement.dataset.theme === "dark" ? "dark" : "light",
         language: document.documentElement.lang.startsWith("en") ? "en" : "zh",
         ignoreCertificateErrors: false,
+        cacheCleanupDays: 7,
       },
       failed: true,
     };
@@ -40,6 +41,7 @@ const Context = createContext({
     appearance: "light",
     language: "zh",
     ignoreCertificateErrors: false,
+    cacheCleanupDays: 7,
   } as UserPreferences,
   ready: false,
   pending: false,

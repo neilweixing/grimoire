@@ -156,10 +156,7 @@ export function piRoutes(resolveService: (workspaceId?: string) => PiService) {
   });
   app.delete("/threads/:id", async (c) => {
     const id = c.req.param("id");
-    const client = await service(c).supervisor();
-    await client.cancelRun(id);
-    await client.deleteThread(id);
-    service(c).forgetThread(id);
+    await service(c).deleteThread(id);
     return c.body(null, 204);
   });
   app.post("/threads/:id/messages", async (c) => {

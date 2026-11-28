@@ -31,6 +31,7 @@ const {
 const { autoUpdater } = require("electron-updater");
 const { createDesktopUpdater, attachUpdateBridge } = require("./updater.cjs");
 
+const { createCacheCleanup } = require("./cache-cleanup.cjs");
 const { waitForLocalUpdate } = require("./macos-update.cjs");
 
 const development = !app.isPackaged && process.env.GRIMOIRE_DESKTOP_DEV === "1";
@@ -57,6 +58,7 @@ const log = (message) => {
 };
 let service;
 let browserAutomation;
+let cacheCleanup;
 let window;
 let url;
 let quitting = false;
@@ -131,6 +133,7 @@ async function start() {
     log,
     dataDir,
     beforeInstall: async () => {
+      cacheCleanup?.dispose();
       await stopAgent(service);
       quitting = true;
       agentWatcher?.close();
@@ -153,13 +156,38 @@ async function start() {
     () => window,
     () => new URL(url).origin,
   );
+  cacheCleanup = createCacheCleanup({
+    clear: async () => {
+      if (!browserAutomation)
+        throw new Error("The browser window is not ready.");
+      await browserAutomation.clearCache();
+    },
+    statePath: join(layout.desktop, "cache-cleanup.json"),
+    log,
+  });
   attachAppBridge(
     ipcMain,
     app,
     () => window,
     () => new URL(url).origin,
+    {
+      clearCache: () => cacheCleanup.clearNow(),
+    },
   );
   await openWindow();
+  let cleanupDays = 7;
+  try {
+    cleanupDays =
+      JSON.parse(readFileSync(join(layout.config, "preferences.json"), "utf8"))
+        .cacheCleanupDays ?? 7;
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  }
+  cacheCleanup.setDays(
+    Number.isInteger(cleanupDays) && cleanupDays >= 0 && cleanupDays <= 365
+      ? cleanupDays
+      : 7,
+  );
   if (!smokeFile) desktopUpdater.start();
   if (development) {
     publishDevState(agentUrl);
@@ -275,6 +303,7 @@ async function startAgent() {
             preferences.appearance === "dark" ? "#282c34" : "#fcfaf7",
           );
           await browserAutomation?.applyPreferences(preferences);
+          cacheCleanup?.setDays(preferences.cacheCleanupDays ?? 7);
         })
         .then(
           () =>
@@ -284,6 +313,27 @@ async function startAgent() {
             child.pid &&
             child.postMessage({
               type: "preferences-result",
+              id: message.id,
+              error: error.message,
+            }),
+        );
+      return;
+    }
+    if (message.type === "browser-data-clear") {
+      Promise.resolve()
+        .then(() => {
+          if (!browserAutomation)
+            throw new Error("The browser window is not ready.");
+          return browserAutomation.clearData(message.context);
+        })
+        .then(
+          () =>
+            child.pid &&
+            child.postMessage({ type: "browser-result", id: message.id }),
+          (error) =>
+            child.pid &&
+            child.postMessage({
+              type: "browser-result",
               id: message.id,
               error: error.message,
             }),
@@ -599,6 +649,7 @@ app.on("before-quit", (event) => {
     try {
       // Arm the detached installer before stopping services; it waits for this PID.
       await desktopUpdater?.installOnQuit();
+      cacheCleanup?.dispose();
       agentWatcher?.close();
       clearTimeout(agentReloadTimer);
       await stopAgent(service);

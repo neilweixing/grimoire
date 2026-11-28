@@ -7,7 +7,11 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
-import { userPreferencesSchema, type UserPreferences } from "@grimoire/core";
+import {
+  cacheCleanupDaysSchema,
+  userPreferencesSchema,
+  type UserPreferences,
+} from "@grimoire/core";
 
 export class UserPreferencesStore {
   constructor(
@@ -60,6 +64,8 @@ export class UserPreferencesStore {
       appearance: stored.appearance === "dark" ? "dark" : "light",
       language: stored.language === "en" ? "en" : "zh",
       ignoreCertificateErrors: stored.ignoreCertificateErrors === true,
+      cacheCleanupDays:
+        cacheCleanupDaysSchema.safeParse(stored.cacheCleanupDays).data ?? 7,
     };
   }
   update(input: unknown): UserPreferences {

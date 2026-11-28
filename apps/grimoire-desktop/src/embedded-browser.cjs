@@ -1,9 +1,9 @@
 const { app, ipcMain, WebContentsView, session } = require("electron");
 const { join } = require("node:path");
-const { createHash, randomUUID } = require("node:crypto");
 const { createBrowserSessions } = require("./browser-sessions.cjs");
 const { BrowserPreferences } = require("./browser-preferences.cjs");
 const { createBrowserAutomation } = require("./browser-tools.cjs");
+const { createBrowserData, validateContext } = require("./browser-data.cjs");
 
 function browserUrl(value) {
   if (typeof value !== "string" || value.length > 8192)
@@ -23,13 +23,15 @@ function attachEmbeddedBrowser(window, origin, options = {}) {
     options.preferencesPath ||
       join(app.getPath("userData"), "preferences.json"),
   );
+  const data = createBrowserData({
+    session,
+    dataPath: app.getPath("sessionData"),
+  });
   let requestedVisible = false;
   let bounds;
   let pages;
   function createPage(binding) {
-    const partition =
-      createHash("sha256").update(JSON.stringify(binding)).digest("hex") +
-      (binding.threadId ? "" : randomUUID());
+    const partition = data.partition(binding);
     let page;
     let view;
     let state = {
@@ -45,11 +47,11 @@ function attachEmbeddedBrowser(window, origin, options = {}) {
     const denyDownload = (event) => event.preventDefault();
     const configureSession = () => {
       // Separate partitions prevent accepted certificate results from surviving a switch back to verification.
-      const selected = session.fromPartition(
-        preferences.ignoreCertificateErrors
-          ? `persist:grimoire-browser-${partition}-unverified`
-          : `persist:grimoire-browser-${partition}`,
-      );
+      const name = preferences.ignoreCertificateErrors
+        ? `${partition}-unverified`
+        : partition;
+      data.register(name, binding);
+      const selected = session.fromPartition(`persist:${name}`);
       selected.setCertificateVerifyProc(
         preferences.ignoreCertificateErrors
           ? (_request, callback) => callback(0)
@@ -62,7 +64,7 @@ function attachEmbeddedBrowser(window, origin, options = {}) {
       selected.on("will-download", denyDownload);
       return selected;
     };
-    let browserSession = configureSession();
+    let browserSession;
 
     const publish = () => {
       if (view && !view.webContents.isDestroyed()) {
@@ -127,6 +129,7 @@ function attachEmbeddedBrowser(window, origin, options = {}) {
     const navigate = (value) => {
       const url = browserUrl(value);
       if (!view) {
+        browserSession ??= configureSession();
         view = new WebContentsView({
           webPreferences: {
             session: browserSession,
@@ -202,7 +205,11 @@ function attachEmbeddedBrowser(window, origin, options = {}) {
       position,
       navigate,
       clear,
-      bind: (context) => automation.bind(context),
+      bind(context) {
+        data.rebind(partition, context);
+        binding = context;
+        automation.bind(context);
+      },
       execute: (request, signal) => automation.execute(request, signal),
       get view() {
         return view;
@@ -213,15 +220,24 @@ function attachEmbeddedBrowser(window, origin, options = {}) {
       async configure() {
         const currentUrl = state.url;
         clear();
+        if (!browserSession) return;
         browserSession.removeListener("will-download", denyDownload);
         await browserSession.closeAllConnections();
         browserSession = configureSession();
         if (currentUrl) navigate(currentUrl);
       },
       dispose() {
-        browserSession.removeListener("will-download", denyDownload);
-        if (view && !view.webContents.isDestroyed()) view.webContents.close();
+        automation.bind({ workspace: "", threadId: null });
+        browserSession?.removeListener("will-download", denyDownload);
+        const previous = view;
         view = undefined;
+        if (!previous || previous.webContents.isDestroyed())
+          return Promise.resolve();
+        if (!window.isDestroyed()) window.contentView.removeChildView(previous);
+        return new Promise((resolve) => {
+          previous.webContents.once("destroyed", resolve);
+          previous.webContents.close({ waitForBeforeUnload: false });
+        });
       },
     };
     return page;
@@ -309,6 +325,19 @@ function attachEmbeddedBrowser(window, origin, options = {}) {
   });
   return {
     execute: (request, signal) => pages.execute(request, signal),
+    clearCache: () => data.clearCache(),
+    async clearData(context) {
+      validateContext(context);
+      const restore = await pages.remove(context);
+      try {
+        await data.clear(context);
+      } catch (error) {
+        restore();
+        current().publish();
+        throw error;
+      }
+      current().publish();
+    },
     async applyPreferences(value) {
       if (
         preferences.applyIgnoreCertificateErrors(value.ignoreCertificateErrors)

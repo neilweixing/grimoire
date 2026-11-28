@@ -22,17 +22,21 @@ function fixture() {
   const handlers = new Map<string, (event: any) => void>();
   const ipc = { handle: vi.fn((name, handler) => handlers.set(name, handler)) };
   minimizeOnClose(window, () => quitting);
+  const clearCache = vi.fn(async () => {});
   attachAppBridge(
     ipc,
     app,
     () => window,
     () => "http://127.0.0.1:12345",
+    { clearCache },
   );
   return {
     window,
     app,
     preventDefault,
     quit: handlers.get("grimoire:app-quit")!,
+    cleanup: handlers.get("grimoire:app-clear-cache")!,
+    clearCache,
     event: {
       sender: window.webContents,
       senderFrame: window.webContents.mainFrame,
@@ -75,4 +79,22 @@ it("rejects stale quit requests after the main window is gone", () => {
   );
   expect(() => quit({})).toThrow("main application");
   expect(app.quit).not.toHaveBeenCalled();
+});
+
+it("permits cache cleanup only from the main app frame and propagates failures", async () => {
+  const { cleanup, clearCache, event } = fixture();
+  await expect(cleanup({ ...event, sender: {} })).rejects.toThrow(
+    "main application",
+  );
+  await expect(
+    cleanup({ ...event, senderFrame: { url: event.senderFrame.url } }),
+  ).rejects.toThrow("main application");
+  expect(clearCache).not.toHaveBeenCalled();
+  await cleanup(event);
+  expect(clearCache).toHaveBeenCalledOnce();
+  clearCache.mockRejectedValueOnce(new Error("busy"));
+  await expect(cleanup(event)).rejects.toThrow("busy");
+  event.senderFrame.url = "https://foreign.example/";
+  await expect(cleanup(event)).rejects.toThrow("main application");
+  expect(clearCache).toHaveBeenCalledTimes(2);
 });

@@ -350,6 +350,46 @@ button:not(:disabled):hover {
   height: 6px;
   accent-color: var(--accent);
 }
+.cache-schedule-control {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  width: 172px;
+}
+.cache-days-field {
+  display: flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 10px;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 14px;
+}
+.cache-days-field:focus-within {
+  border-color: var(--accent);
+}
+.cache-days-field.is-disabled {
+  opacity: 0.5;
+}
+.cache-days-field input {
+  width: 52px;
+  border: 0;
+  padding: 6px 0;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+}
+.settings-cache-status {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 20px;
+}
 .general-settings-footer {
   display: flex;
   align-items: center;
@@ -2034,6 +2074,25 @@ details[open] > summary > .activity-chevron {
   display: flex;
   align-items: center;
   gap: 14px;
+}
+.preference-row > .small-button {
+  min-height: 36px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border-color: var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 14px;
+}
+.preference-row > .small-button:hover:not(:disabled) {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+  color: var(--ink);
+}
+.preference-row > .small-button:disabled {
+  border-color: var(--border);
+  background: var(--surface);
+  opacity: 0.5;
 }
 .preference-row + .preference-row {
   margin-top: 16px;

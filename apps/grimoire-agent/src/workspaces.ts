@@ -7,10 +7,12 @@ import {
   statSync,
   rmSync,
 } from "node:fs";
+import { readdir } from "node:fs/promises";
 import { basename, isAbsolute, join, resolve, relative, sep } from "node:path";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { PiService, type PiServiceOptions } from "./pi-service.js";
 import { PolicyError } from "./permissions.js";
 import { SettingsStore } from "./settings.js";
@@ -142,6 +144,38 @@ export class WorkspaceRegistry {
     try {
       await this.services.get(id)?.dispose();
       this.services.delete(id);
+      const entry = this.entries.find((entry) => entry.id === id)!;
+      if (this.options.clearBrowserData) {
+        const stateDir =
+          id === "default"
+            ? this.dataDir
+            : join(this.dataDir, "workspaces", id);
+        // Legacy browser partitions have no ownership index. Resolve them from
+        // native session IDs before deleting the project's private session store.
+        const sessionRoot = join(stateDir, "agent", "sessions");
+        const folders = await readdir(sessionRoot, {
+          withFileTypes: true,
+        }).catch((error) => {
+          if (error.code === "ENOENT") return [];
+          throw error;
+        });
+        const sessions = (
+          await Promise.all([
+            SessionManager.listAll(sessionRoot),
+            ...folders
+              .filter((folder) => folder.isDirectory())
+              .map((folder) =>
+                SessionManager.listAll(join(sessionRoot, folder.name)),
+              ),
+          ])
+        ).flat();
+        await this.options.clearBrowserData({
+          workspace: entry.path,
+          ...(sessions.length
+            ? { threadIds: sessions.map((session) => session.id) }
+            : {}),
+        });
+      }
       // Remove application-owned state only. The registered source folder is retained.
       if (id === "default") {
         for (const name of [

@@ -1,3 +1,4 @@
+import { browserDataContextSchema } from "@grimoire/core";
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { readFileSync } from "node:fs";
@@ -67,6 +68,24 @@ const app = createApp(new SettingsStore(join(configDir, "providers.json")), {
     });
   },
   allowFullAccess: true,
+  clearBrowserData: async (context) => {
+    const id = ++nextRequest;
+    const input = browserDataContextSchema.parse(context);
+    return new Promise<void>((resolve, reject) => {
+      const finish = (error?: Error) => {
+        clearTimeout(timeout);
+        browserPending.delete(id);
+        if (error) reject(error);
+        else resolve();
+      };
+      const timeout = setTimeout(
+        () => finish(new Error("Browser data cleanup timed out.")),
+        60000,
+      );
+      browserPending.set(id, { resolve: () => finish(), reject: finish });
+      parent.postMessage({ type: "browser-data-clear", id, context: input });
+    });
+  },
   browser: async (request: BrowserRequest, signal) => {
     signal?.throwIfAborted();
     const id = ++nextRequest;

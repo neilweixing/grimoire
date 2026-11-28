@@ -1,7 +1,10 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("grimoireDesktop", {
-  app: { quit: () => ipcRenderer.invoke("grimoire:app-quit") },
+  app: {
+    quit: () => ipcRenderer.invoke("grimoire:app-quit"),
+    clearCache: () => ipcRenderer.invoke("grimoire:app-clear-cache"),
+  },
   clipboard: {
     writeText: (text) => ipcRenderer.invoke("grimoire:clipboard-write", text),
   },
