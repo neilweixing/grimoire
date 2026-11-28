@@ -7,7 +7,7 @@
   "type": "module",
   "main": "src/main.cjs",
   "scripts": {
-    "build": "node --check src/main.cjs && node --check src/clipboard.cjs && node --check src/app-controls.cjs && node --check src/data-directory.cjs && node --check src/preload.cjs && node --check scripts/dev.mjs && node --check src/embedded-browser.cjs && node --check src/browser-preferences.cjs && node --check src/browser-tools.cjs && node --check scripts/icon.mjs && node --check scripts/stage.mjs && node --check scripts/smoke.mjs && node --check src/updater.cjs && node --check src/browser-sessions.cjs && node --check scripts/browser-smoke.cjs && node --check scripts/verify-updates.mjs && node --check scripts/build-installer.mjs",
+    "build": "node --check src/main.cjs && node --check src/clipboard.cjs && node --check src/app-controls.cjs && node --check src/data-directory.cjs && node --check src/preload.cjs && node --check scripts/dev.mjs && node --check src/embedded-browser.cjs && node --check src/browser-preferences.cjs && node --check src/browser-tools.cjs && node --check scripts/icon.mjs && node --check scripts/stage.mjs && node --check scripts/smoke.mjs && node --check src/updater.cjs && node --check src/browser-sessions.cjs && node --check scripts/browser-smoke.cjs && node --check scripts/verify-updates.mjs && node --check scripts/build-installer.mjs && node --check src/macos-update.cjs && node --check src/macos-update-helper.cjs",
     "start": "electron .",
     "dist": "pnpm run stage && node scripts/build-installer.mjs --mac dmg zip --arm64 --publish never",
     "pack": "pnpm run stage && node scripts/build-installer.mjs --mac --arm64 --dir --publish never",
@@ -43,7 +43,9 @@
       "src/browser-preferences.cjs",
       "src/browser-tools.cjs",
       "src/updater.cjs",
-      "src/browser-sessions.cjs"
+      "src/browser-sessions.cjs",
+      "src/macos-update.cjs",
+      "src/macos-update-helper.cjs"
     ],
     "extraResources": [
       {
@@ -148,6 +150,7 @@
     }
   },
   "dependencies": {
-    "electron-updater": "6.8.11"
+    "electron-updater": "6.8.11",
+    "yauzl": "3.4.0"
   }
 }

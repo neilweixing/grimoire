@@ -35,6 +35,7 @@ export type DesktopUpdateState = {
     | "automatic"
     | "development"
     | "macos-unsigned"
+    | "macos-local"
     | "windows-msi"
     | "unsupported";
   error: "failed" | "not-published" | null;
@@ -113,13 +114,19 @@ export function DesktopUpdatesProvider({ children }: { children: ReactNode }) {
       {downloadedOpen && state?.phase === "downloaded" && (
         <DownloadedDialog
           version={state.availableVersion || ""}
-          automatic={state.capability === "automatic"}
+          automatic={
+            state.capability === "automatic" ||
+            state.capability === "macos-local"
+          }
           error={commandError}
           onClose={() => setDownloadedOpen(false)}
           onConfirm={() =>
             void command({
               action:
-                state.capability === "automatic" ? "quit" : "open-installer",
+                state.capability === "automatic" ||
+                state.capability === "macos-local"
+                  ? "quit"
+                  : "open-installer",
             })
           }
         />
