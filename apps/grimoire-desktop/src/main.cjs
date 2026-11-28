@@ -7,25 +7,40 @@ const {
   shell,
   autoUpdater: nativeUpdater,
   utilityProcess,
+  clipboard,
+  nativeTheme,
 } = require("electron");
 const { join, isAbsolute, dirname, basename } = require("node:path");
 const {
   appendFileSync,
+  readFileSync,
   mkdirSync,
   writeFileSync,
   existsSync,
   watch,
 } = require("node:fs");
 const { attachEmbeddedBrowser } = require("./embedded-browser.cjs");
+const { attachClipboardBridge } = require("./clipboard.cjs");
+const { attachAppBridge, minimizeOnClose } = require("./app-controls.cjs");
+const {
+  desktopDataDirectory,
+  migrateDesktopData,
+} = require("./data-directory.cjs");
 const { autoUpdater } = require("electron-updater");
 const { createDesktopUpdater, attachUpdateBridge } = require("./updater.cjs");
 
 const development = !app.isPackaged && process.env.GRIMOIRE_DESKTOP_DEV === "1";
 app.setName(development ? "Grimoire Dev" : "Grimoire");
-if (process.env.GRIMOIRE_DESKTOP_USER_DATA)
-  app.setPath("userData", process.env.GRIMOIRE_DESKTOP_USER_DATA);
-const dataDir = app.getPath("userData");
+const legacyDataDir = app.getPath("userData");
+const dataOverride = process.env.GRIMOIRE_DESKTOP_USER_DATA;
+const dataDir = desktopDataDirectory({
+  override: dataOverride,
+  development,
+  legacy: legacyDataDir,
+});
 mkdirSync(dataDir, { recursive: true, mode: 0o700 });
+app.setPath("userData", dataDir);
+app.setPath("sessionData", dataDir);
 const log = (message) => {
   appendFileSync(
     join(dataDir, "desktop.log"),
@@ -49,6 +64,7 @@ const smokeFile = process.env.GRIMOIRE_DESKTOP_SMOKE_REPORT;
 if (!app.requestSingleInstanceLock()) app.quit();
 else {
   app.on("second-instance", () => {
+    if (window?.isMinimized()) window.restore();
     window?.show();
     window?.focus();
   });
@@ -56,6 +72,14 @@ else {
 }
 
 async function start() {
+  if (
+    !development &&
+    !dataOverride &&
+    migrateDesktopData(legacyDataDir, dataDir)
+  )
+    log(
+      "Migrated legacy desktop settings and sessions; source files were retained.",
+    );
   Menu.setApplicationMenu(
     process.platform === "win32"
       ? null
@@ -102,6 +126,18 @@ async function start() {
   attachUpdateBridge(
     ipcMain,
     desktopUpdater,
+    () => window,
+    () => new URL(url).origin,
+  );
+  attachClipboardBridge(
+    ipcMain,
+    clipboard,
+    () => window,
+    () => new URL(url).origin,
+  );
+  attachAppBridge(
+    ipcMain,
+    app,
     () => window,
     () => new URL(url).origin,
   );
@@ -205,6 +241,36 @@ async function startAgent() {
   service = child;
   const browserRequests = new Map();
   child.on("message", (message) => {
+    if (message.type === "preferences-change") {
+      const preferences = message.preferences;
+      Promise.resolve()
+        .then(async () => {
+          if (
+            !preferences ||
+            !["light", "dark"].includes(preferences.appearance) ||
+            typeof preferences.ignoreCertificateErrors !== "boolean"
+          )
+            throw new Error("Invalid desktop preferences.");
+          nativeTheme.themeSource = preferences.appearance;
+          window?.setBackgroundColor(
+            preferences.appearance === "dark" ? "#282c34" : "#fcfaf7",
+          );
+          await browserAutomation?.applyPreferences(preferences);
+        })
+        .then(
+          () =>
+            child.pid &&
+            child.postMessage({ type: "preferences-result", id: message.id }),
+          (error) =>
+            child.pid &&
+            child.postMessage({
+              type: "preferences-result",
+              id: message.id,
+              error: error.message,
+            }),
+        );
+      return;
+    }
     if (message.type === "browser-cancel")
       browserRequests.get(message.id)?.abort();
     if (message.type !== "browser-request") return;
@@ -273,6 +339,15 @@ async function startAgent() {
 }
 
 async function openWindow() {
+  let appearance = "light";
+  try {
+    appearance =
+      JSON.parse(readFileSync(join(dataDir, "preferences.json"), "utf8"))
+        .appearance === "dark"
+        ? "dark"
+        : "light";
+  } catch {}
+  nativeTheme.themeSource = appearance;
   window = new BrowserWindow({
     width: 1320,
     height: 900,
@@ -282,7 +357,7 @@ async function openWindow() {
     ...(process.platform === "darwin"
       ? { titleBarStyle: "hiddenInset", trafficLightPosition: { x: 8, y: 16 } }
       : {}),
-    backgroundColor: "#fcfaf7",
+    backgroundColor: appearance === "dark" ? "#282c34" : "#fcfaf7",
     show: false,
     webPreferences: {
       preload: join(__dirname, "preload.cjs"),
@@ -292,13 +367,24 @@ async function openWindow() {
     },
   });
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-  browserAutomation = attachEmbeddedBrowser(window, new URL(url).origin);
+  browserAutomation = attachEmbeddedBrowser(window, new URL(url).origin, {
+    updatePreferences: async (patch) => {
+      const response = await fetch(`${url}/api/preferences`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      if (!response.ok) throw new Error("Could not save browser preferences.");
+      return response.json();
+    },
+  });
   window.webContents.on("will-navigate", (event, target) => {
     if (new URL(target).origin !== new URL(url).origin) event.preventDefault();
   });
   window.webContents.session.setPermissionRequestHandler(
     (_contents, _permission, callback) => callback(false),
   );
+  minimizeOnClose(window, () => quitting);
   window.on("closed", () => {
     window = undefined;
   });
@@ -475,13 +561,19 @@ function fail(error) {
   app.exit(1);
 }
 app.on("activate", () => {
-  if (!window && url && !quitting) openWindow().catch(fail);
+  if (quitting) return;
+  if (window) {
+    if (window.isMinimized()) window.restore();
+    window.show();
+    window.focus();
+  } else if (url) openWindow().catch(fail);
 });
 app.on("window-all-closed", () => app.quit());
 app.on("before-quit", (event) => {
-  if (quitting || !service?.pid) return;
-  event.preventDefault();
+  if (quitting) return;
   quitting = true;
+  if (!service?.pid) return;
+  event.preventDefault();
   agentWatcher?.close();
   clearTimeout(agentReloadTimer);
   const timeout = setTimeout(() => {

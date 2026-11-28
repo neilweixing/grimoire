@@ -18,9 +18,9 @@ function browserUrl(value) {
   return url.href;
 }
 
-function attachEmbeddedBrowser(window, origin) {
+function attachEmbeddedBrowser(window, origin, options = {}) {
   const preferences = new BrowserPreferences(
-    join(app.getPath("userData"), "browser-settings.json"),
+    join(app.getPath("userData"), "preferences.json"),
   );
   let requestedVisible = false;
   let bounds;
@@ -247,8 +247,16 @@ function attachEmbeddedBrowser(window, origin) {
       case "state":
         return page.publish();
       case "settings": {
-        preferences.setIgnoreCertificateErrors(command.ignoreCertificateErrors);
-        await Promise.all(pages.values().map((entry) => entry.configure()));
+        if (options.updatePreferences) {
+          await options.updatePreferences({
+            ignoreCertificateErrors: command.ignoreCertificateErrors,
+          });
+        } else {
+          preferences.setIgnoreCertificateErrors(
+            command.ignoreCertificateErrors,
+          );
+          await Promise.all(pages.values().map((entry) => entry.configure()));
+        }
         return current().publish();
       }
       case "bounds":
@@ -298,7 +306,16 @@ function attachEmbeddedBrowser(window, origin) {
     ipcMain.removeHandler("grimoire:browser-command");
     for (const entry of pages.values()) entry.dispose();
   });
-  return { execute: (request, signal) => pages.execute(request, signal) };
+  return {
+    execute: (request, signal) => pages.execute(request, signal),
+    async applyPreferences(value) {
+      if (
+        preferences.applyIgnoreCertificateErrors(value.ignoreCertificateErrors)
+      )
+        await Promise.all(pages.values().map((entry) => entry.configure()));
+      current().publish();
+    },
+  };
 }
 
 module.exports = { attachEmbeddedBrowser, browserUrl };

@@ -7,7 +7,7 @@
   "type": "module",
   "main": "src/main.cjs",
   "scripts": {
-    "build": "node --check src/main.cjs && node --check src/preload.cjs && node --check scripts/dev.mjs && node --check src/embedded-browser.cjs && node --check src/browser-preferences.cjs && node --check src/browser-tools.cjs && node --check scripts/icon.mjs && node --check scripts/stage.mjs && node --check scripts/smoke.mjs && node --check src/updater.cjs && node --check src/browser-sessions.cjs && node --check scripts/browser-smoke.cjs && node --check scripts/verify-updates.mjs && node --check scripts/build-installer.mjs",
+    "build": "node --check src/main.cjs && node --check src/clipboard.cjs && node --check src/app-controls.cjs && node --check src/data-directory.cjs && node --check src/preload.cjs && node --check scripts/dev.mjs && node --check src/embedded-browser.cjs && node --check src/browser-preferences.cjs && node --check src/browser-tools.cjs && node --check scripts/icon.mjs && node --check scripts/stage.mjs && node --check scripts/smoke.mjs && node --check src/updater.cjs && node --check src/browser-sessions.cjs && node --check scripts/browser-smoke.cjs && node --check scripts/verify-updates.mjs && node --check scripts/build-installer.mjs",
     "start": "electron .",
     "dist": "pnpm run stage && node scripts/build-installer.mjs --mac dmg zip --arm64 --publish never",
     "pack": "pnpm run stage && node scripts/build-installer.mjs --mac --arm64 --dir --publish never",
@@ -34,6 +34,9 @@
     },
     "files": [
       "src/main.cjs",
+      "src/clipboard.cjs",
+      "src/app-controls.cjs",
+      "src/data-directory.cjs",
       "src/preload.cjs",
       "package.json",
       "src/embedded-browser.cjs",

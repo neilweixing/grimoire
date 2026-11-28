@@ -1,4 +1,6 @@
 import { Hono } from "hono";
+import { join } from "node:path";
+import { UserPreferencesStore } from "./user-preferences.js";
 import { bodyLimit } from "hono/body-limit";
 import { streamSSE } from "hono/streaming";
 import {
@@ -8,6 +10,7 @@ import {
   providerInputSchema,
   modelSelectionSchema,
   type AgentStreamEvent,
+  type UserPreferences,
 } from "@grimoire/core";
 import {
   createGrimoireAgent,
@@ -39,9 +42,16 @@ export function createApp(
   settings = new SettingsStore(),
   options: PiServiceOptions & {
     selectFolder?: typeof nativeFolderPicker.select;
+    preferences?: UserPreferencesStore;
+    onPreferencesChange?: (preferences: UserPreferences) => Promise<void>;
   } = {},
 ) {
   const app = new Hono();
+  const preferences =
+    options.preferences ??
+    new UserPreferencesStore(
+      options.dataDir ? join(options.dataDir, "preferences.json") : undefined,
+    );
   const probes = new Set<string>();
   let registry: WorkspaceRegistry | undefined;
   const workspaces = () =>
@@ -110,6 +120,12 @@ export function createApp(
       { error: errorMessage(c.req.header("accept-language"), "serviceError") },
       500,
     );
+  });
+  app.get("/api/preferences", (c) => c.json(preferences.get()));
+  app.put("/api/preferences", async (c) => {
+    const next = preferences.update(await c.req.json());
+    await options.onPreferencesChange?.(next);
+    return c.json(next);
   });
   app.route(
     "/api/pi",
