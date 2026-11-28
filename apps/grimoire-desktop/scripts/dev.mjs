@@ -128,7 +128,7 @@ async function startElectron(apiPort, webUrl) {
   }
   if (!stopping)
     throw new Error(
-      "Electron startup timed out. Check the development profile's desktop.log.",
+      "Electron startup timed out. Check the development profile's logs/desktop.log.",
     );
 }
 

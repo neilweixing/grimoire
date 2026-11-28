@@ -25,6 +25,8 @@ const { attachAppBridge, minimizeOnClose } = require("./app-controls.cjs");
 const {
   desktopDataDirectory,
   migrateDesktopData,
+  desktopLayout,
+  migrateDesktopLayout,
 } = require("./data-directory.cjs");
 const { autoUpdater } = require("electron-updater");
 const { createDesktopUpdater, attachUpdateBridge } = require("./updater.cjs");
@@ -39,11 +41,13 @@ const dataDir = desktopDataDirectory({
   legacy: legacyDataDir,
 });
 mkdirSync(dataDir, { recursive: true, mode: 0o700 });
+const layout = desktopLayout(dataDir);
+mkdirSync(layout.logs, { recursive: true, mode: 0o700 });
+// Keep the original lock location so older installed versions cannot run during migration.
 app.setPath("userData", dataDir);
-app.setPath("sessionData", dataDir);
 const log = (message) => {
   appendFileSync(
-    join(dataDir, "desktop.log"),
+    join(layout.logs, "desktop.log"),
     `${new Date().toISOString()} ${message}\n`,
     { mode: 0o600 },
   );
@@ -68,18 +72,19 @@ else {
     window?.show();
     window?.focus();
   });
-  app.whenReady().then(start).catch(fail);
+  try {
+    if (!development && !dataOverride)
+      migrateDesktopData(legacyDataDir, dataDir);
+    migrateDesktopLayout(dataDir);
+    app.setPath("userData", layout.desktop);
+    app.setPath("sessionData", layout.desktop);
+    app.whenReady().then(start).catch(fail);
+  } catch (error) {
+    fail(error);
+  }
 }
 
 async function start() {
-  if (
-    !development &&
-    !dataOverride &&
-    migrateDesktopData(legacyDataDir, dataDir)
-  )
-    log(
-      "Migrated legacy desktop settings and sessions; source files were retained.",
-    );
   Menu.setApplicationMenu(
     process.platform === "win32"
       ? null
@@ -223,6 +228,7 @@ async function startAgent() {
       ...process.env,
       GRIMOIRE_DESKTOP_DEV: development ? "1" : "0",
       GRIMOIRE_DESKTOP_DATA: dataDir,
+      GRIMOIRE_DESKTOP_CONFIG: layout.config,
       GRIMOIRE_DESKTOP_WEB: join(resources, "web"),
       PATH:
         process.platform === "win32"
@@ -342,7 +348,7 @@ async function openWindow() {
   let appearance = "light";
   try {
     appearance =
-      JSON.parse(readFileSync(join(dataDir, "preferences.json"), "utf8"))
+      JSON.parse(readFileSync(join(layout.config, "preferences.json"), "utf8"))
         .appearance === "dark"
         ? "dark"
         : "light";
@@ -368,6 +374,7 @@ async function openWindow() {
   });
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   browserAutomation = attachEmbeddedBrowser(window, new URL(url).origin, {
+    preferencesPath: join(layout.config, "preferences.json"),
     updatePreferences: async (patch) => {
       const response = await fetch(`${url}/api/preferences`, {
         method: "PUT",
@@ -556,7 +563,7 @@ function fail(error) {
   else
     dialog.showErrorBox(
       "Grimoire",
-      `Unable to start Grimoire.\n${error.message}\n\nLog: ${join(dataDir, "desktop.log")}`,
+      `Unable to start Grimoire.\n${error.message}\n\nLog: ${join(layout.logs, "desktop.log")}`,
     );
   app.exit(1);
 }
