@@ -54,6 +54,7 @@ export function piRoutes(resolveService: (workspaceId?: string) => PiService) {
       );
     return client;
   };
+  app.get("/skills", async (c) => c.json(await service(c).availableSkills()));
   app.get("/execution", (c) => c.json(service(c).execution()));
   app.get("/thinking-levels", (c) => {
     const { provider, modelId } = z

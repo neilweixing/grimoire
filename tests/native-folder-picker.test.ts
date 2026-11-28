@@ -134,6 +134,7 @@ it("delegates desktop folder selection to the injected Electron bridge", async (
   const choose = vi.fn().mockResolvedValue(realpathSync(directory));
   const fallback = vi.spyOn(nativeFolderPicker, "select");
   const app = createApp(new SettingsStore(join(directory, "providers.json")), {
+    globalSkillRoot: join(directory, "home-agents"),
     dataDir: join(directory, "pi"),
     selectFolder: choose,
   });
