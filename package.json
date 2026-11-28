@@ -8,6 +8,8 @@
     "node": ">=22.19.0"
   },
   "scripts": {
+    "prepare": "node scripts/install-git-hooks.mjs",
+    "hooks:install": "node scripts/install-git-hooks.mjs",
     "dev": "pnpm --parallel --filter './apps/*' dev",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",

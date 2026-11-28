@@ -19,6 +19,21 @@ pnpm dev
 
 Open [http://127.0.0.1:5173](http://127.0.0.1:5173). The Agent API binds to `127.0.0.1:3001`.
 
+## Commit message validation
+
+`pnpm install` installs the repository's `pre-push` hook through the `prepare` script. For an existing checkout, run `pnpm hooks:install` once. The installer preserves any existing `core.hooksPath` configuration by reporting a conflict instead of overwriting it.
+
+Before each push, the hook checks every commit introduced by the pushed refs, including earlier unpushed commits. Use `<type>(<scope>): <description>` with a lowercase type from `AGENTS.md`, an optional nonempty scope, exactly one space after the colon, and a Chinese description with no trailing period or whitespace. The checker requires at least one Chinese character and rejects the generic descriptions `更新代码` and `修复问题`; reviewers still assess whether the wording accurately describes the change. Breaking changes use `!` immediately before the colon and require a commit body explaining the compatibility impact.
+
+```text
+feat(ui): 新增模型选择器
+fix(api): 修复会话恢复失败
+```
+
+A rejected push lists the offending commits. Correct the messages with `git commit --amend` or `git rebase -i`, then push again. Merge and revert commits follow the same format; Git's default generated messages must be edited. For a new remote branch or tag, commits already reachable from this remote's local tracking refs are excluded. If no tracking refs exist, the entire reachable history is checked; fetch an existing remote before pushing a new branch. Ref deletions introduce no commits and are skipped. The **Commit messages** GitHub Actions workflow runs on every branch push and pull request, reusing the same validator independently of local hooks. PR checks use the actual base and head SHAs, excluding GitHub's synthetic merge commit. Push checks use the event's before/after SHAs; new branches exclude history reachable from other remote branches. The workflow fetches full history and retrieves missing commit objects when needed; missing history or malformed events fail the check.
+
+Configure **Commit message format** as a required status check in the target branch's protection rule or ruleset to block merging when validation fails. Local `--no-verify` does not skip CI. The workflow reports failures after a push; preventing direct updates to protected branches also requires the repository's branch protection settings.
+
 ## Desktop downloads and CI
 
 [Desktop installers](https://github.com/neilweixing/grimoire/actions/workflows/desktop-build.yml) builds Apple Silicon DMG/ZIP packages on macOS and Windows x64 MSI/NSIS EXE packages on Windows. Runs start on pushes to `main`, pull requests, `v*` tags, or manual dispatch. After a successful run, download `Grimoire-macOS-arm64` or `Grimoire-Windows-x64` from **Artifacts**. Installers are unsigned; no signing credentials are included in the repository.
