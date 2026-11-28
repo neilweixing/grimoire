@@ -1,10 +1,21 @@
 import { z } from "zod";
 
+export const browserDataContextSchema = z
+  .object({
+    workspace: z.string().min(1).max(4096),
+    threadId: z.string().min(1).max(200).optional(),
+    threadIds: z.array(z.string().min(1).max(200)).optional(),
+  })
+  .strict();
+export type BrowserDataContext = z.infer<typeof browserDataContextSchema>;
+
 export const appearanceSchema = z.enum(["light", "dark"]);
+export const cacheCleanupDaysSchema = z.number().int().min(0).max(365);
 export const userPreferencesSchema = z.object({
   appearance: appearanceSchema,
   language: z.enum(["zh", "en"]),
   ignoreCertificateErrors: z.boolean(),
+  cacheCleanupDays: cacheCleanupDaysSchema,
 });
 export type UserPreferences = z.infer<typeof userPreferencesSchema>;
 

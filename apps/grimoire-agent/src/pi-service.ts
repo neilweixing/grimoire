@@ -1,3 +1,4 @@
+import type { BrowserDataContext } from "@grimoire/core";
 import { selectProviderModel } from "./provider-catalog.js";
 import {
   mkdirSync,
@@ -76,6 +77,7 @@ export type PiServiceOptions = {
   executor?: SandboxExecutor;
   allowFullAccess?: boolean;
   browser?: BrowserBridge;
+  clearBrowserData?: (context: BrowserDataContext) => Promise<void>;
   integrations?: IntegrationStore;
   integrationsUpdating?: () => boolean;
 };
@@ -884,6 +886,17 @@ export class PiService {
     } finally {
       this.titleTasks.delete(id);
     }
+  }
+  async deleteThread(id: string) {
+    const client = await this.supervisor();
+    await client.getThread(id);
+    await client.cancelRun(id);
+    await this.options.clearBrowserData?.({
+      workspace: this.workspace,
+      threadId: id,
+    });
+    await client.deleteThread(id);
+    this.forgetThread(id);
   }
   forgetThread(id: string) {
     this.policy.forget(id);

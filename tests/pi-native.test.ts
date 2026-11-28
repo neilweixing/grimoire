@@ -10,7 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AddressInfo } from "node:net";
-import { afterEach, beforeEach, expect, it } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { PiService } from "../apps/grimoire-agent/src/pi-service";
 import { piRoutes } from "../apps/grimoire-agent/src/pi-routes";
 import { SettingsStore } from "../apps/grimoire-agent/src/settings";
@@ -500,5 +500,161 @@ it("cancels pending approvals before cascading project deletion and preserves so
     ).toBe(false);
   } finally {
     await registry.dispose();
+  }
+});
+
+it("waits for browser data cleanup before deleting the native chat and keeps other chats intact", async () => {
+  await service.dispose();
+  let finish!: () => void;
+  const clearBrowserData = vi.fn(
+    () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  service = new PiService(settings, {
+    dataDir: join(directory, "pi"),
+    workspace: join(directory, "workspace"),
+    globalSkillRoot: join(directory, "home-agents"),
+    clearBrowserData,
+  });
+  const client = await service.supervisor();
+  const one = await client.createThread(),
+    two = await client.createThread();
+  const deleting = piRoutes(() => service).request(
+    `/threads/${one.metadata.id}`,
+    { method: "DELETE" },
+  );
+  await waitFor(
+    async () => clearBrowserData.mock.calls.length,
+    (count) => count === 1,
+  );
+  expect(clearBrowserData).toHaveBeenCalledWith({
+    workspace: service.workspace,
+    threadId: one.metadata.id,
+  });
+  expect((await client.getThread(one.metadata.id)).metadata.id).toBe(
+    one.metadata.id,
+  );
+  finish();
+  expect((await deleting).status).toBe(204);
+  await expect(client.getThread(one.metadata.id)).rejects.toThrow();
+  expect((await client.getThread(two.metadata.id)).metadata.id).toBe(
+    two.metadata.id,
+  );
+});
+it("retains the native chat after browser cleanup failure so deletion can be retried", async () => {
+  await service.dispose();
+  const clearBrowserData = vi
+    .fn()
+    .mockRejectedValueOnce(new Error("cleanup busy"))
+    .mockResolvedValue(undefined);
+  service = new PiService(settings, {
+    dataDir: join(directory, "pi"),
+    workspace: join(directory, "workspace"),
+    globalSkillRoot: join(directory, "home-agents"),
+    clearBrowserData,
+  });
+  const client = await service.supervisor();
+  const thread = await client.createThread();
+  const routes = piRoutes(() => service);
+  const log = vi.spyOn(console, "error").mockImplementation(() => {});
+  try {
+    expect(
+      (
+        await routes.request(`/threads/${thread.metadata.id}`, {
+          method: "DELETE",
+        })
+      ).status,
+    ).toBe(500);
+    expect((await client.getThread(thread.metadata.id)).metadata.id).toBe(
+      thread.metadata.id,
+    );
+    expect(
+      (
+        await routes.request(`/threads/${thread.metadata.id}`, {
+          method: "DELETE",
+        })
+      ).status,
+    ).toBe(204);
+    expect(clearBrowserData).toHaveBeenCalledTimes(2);
+  } finally {
+    log.mockRestore();
+  }
+});
+it("cleans the registered project's browser data before deleting its private state", async () => {
+  const clearBrowserData = vi
+    .fn()
+    .mockRejectedValueOnce(new Error("cleanup busy"))
+    .mockResolvedValue(undefined);
+  const registry = new WorkspaceRegistry(settings, {
+    dataDir: join(directory, "registry"),
+    globalSkillRoot: join(directory, "home-agents"),
+    clearBrowserData,
+  });
+  const source = join(directory, "browser-project");
+  mkdirSync(source);
+  writeFileSync(join(source, "code.txt"), "keep source");
+  const project = registry.add(source);
+  try {
+    await expect(registry.remove(project.id)).rejects.toThrow("cleanup busy");
+    expect(registry.list().some((entry) => entry.id === project.id)).toBe(true);
+    await registry.remove(project.id);
+    expect(clearBrowserData).toHaveBeenLastCalledWith({
+      workspace: project.path,
+    });
+    expect(registry.list().some((entry) => entry.id === project.id)).toBe(
+      false,
+    );
+    expect(readFileSync(join(source, "code.txt"), "utf8")).toBe("keep source");
+  } finally {
+    await registry.dispose();
+  }
+});
+
+it("cleans legacy browser partitions for persisted project chats after a cold restart without recreating a missing folder", async () => {
+  const dataDir = join(directory, "legacy-browser-registry");
+  const options = { dataDir, globalSkillRoot: join(directory, "home-agents") };
+  const first = new WorkspaceRegistry(settings, options);
+  const source = join(directory, "legacy-browser-project");
+  mkdirSync(source);
+  const project = first.add(source);
+  const stateDir = join(dataDir, "workspaces", project.id);
+  const threadId = await first.service(project.id).importConversation({
+    id: crypto.randomUUID(),
+    title: "Legacy chat",
+    messages: [
+      {
+        id: "user",
+        role: "user",
+        status: "complete",
+        content: [{ type: "text", text: "Hello" }],
+      },
+      {
+        id: "assistant",
+        role: "assistant",
+        status: "complete",
+        content: [{ type: "text", text: "Saved answer" }],
+      },
+    ],
+  });
+  await first.dispose();
+  rmSync(source, { recursive: true });
+  const clearBrowserData = vi.fn(async () => {
+    expect(existsSync(stateDir)).toBe(true);
+  });
+  const reopened = new WorkspaceRegistry(settings, {
+    ...options,
+    clearBrowserData,
+  });
+  try {
+    await reopened.remove(project.id);
+    expect(clearBrowserData.mock.calls).toEqual([
+      [{ workspace: project.path, threadIds: [threadId] }],
+    ]);
+    expect(existsSync(source)).toBe(false);
+    expect(existsSync(stateDir)).toBe(false);
+  } finally {
+    await reopened.dispose();
   }
 });

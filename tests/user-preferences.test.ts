@@ -24,6 +24,7 @@ it("uses light and Chinese defaults without writing a file on read", () => {
     appearance: "light",
     language: "zh",
     ignoreCertificateErrors: false,
+    cacheCleanupDays: 7,
   });
   expect(existsSync(path)).toBe(false);
 });
@@ -32,6 +33,7 @@ it("persists all general preferences and reloads them in a fresh store", () => {
     appearance: "dark",
     language: "en",
     ignoreCertificateErrors: true,
+    cacheCleanupDays: 14,
   };
   new UserPreferencesStore(path).update(preferences);
   expect(new UserPreferencesStore(path).get()).toEqual(preferences);
@@ -46,6 +48,7 @@ it("preserves other keys and unrelated general fields during a partial update", 
       appearance: "dark",
       language: "en",
       ignoreCertificateErrors: true,
+      cacheCleanupDays: 14,
       future: { keep: true },
     }),
   );
@@ -54,6 +57,7 @@ it("preserves other keys and unrelated general fields during a partial update", 
     appearance: "dark",
     language: "zh",
     ignoreCertificateErrors: true,
+    cacheCleanupDays: 14,
     future: { keep: true },
   });
 });
@@ -102,6 +106,7 @@ it("serves and saves preferences through the guarded API and notifies the deskto
       appearance: "dark",
       language: "en",
       ignoreCertificateErrors: true,
+      cacheCleanupDays: 7,
     });
     const rejected = await app.request("/api/preferences", {
       method: "PUT",
@@ -127,6 +132,7 @@ it("preserves all fields across concurrent partial API requests", async () => {
         { appearance: "dark" },
         { language: "en" },
         { ignoreCertificateErrors: true },
+        { cacheCleanupDays: 14 },
       ].map((body) =>
         app.request("/api/preferences", {
           method: "PUT",
@@ -140,6 +146,7 @@ it("preserves all fields across concurrent partial API requests", async () => {
       appearance: "dark",
       language: "en",
       ignoreCertificateErrors: true,
+      cacheCleanupDays: 14,
     });
   } finally {
     await app.dispose();
@@ -165,4 +172,14 @@ it("imports flat preferences into config while retaining the original", () => {
   moved.update({ language: "zh" });
   expect(JSON.parse(readFileSync(path, "utf8")).language).toBe("en");
   expect(moved.get().language).toBe("zh");
+});
+
+it("persists disabled automatic cleanup and rejects invalid day counts", () => {
+  const store = new UserPreferencesStore(path);
+  expect(store.get().cacheCleanupDays).toBe(7);
+  store.update({ cacheCleanupDays: 0 });
+  store.update({ language: "en" });
+  expect(new UserPreferencesStore(path).get().cacheCleanupDays).toBe(0);
+  for (const value of [-1, 1.5, 366, "7", null])
+    expect(() => store.update({ cacheCleanupDays: value })).toThrow();
 });

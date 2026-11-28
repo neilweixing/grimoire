@@ -201,6 +201,7 @@ export function Settings({
                   }
                 />
               </div>
+              {window.grimoireDesktop?.app?.clearCache && <CacheSettings />}
               <h4 className="settings-category">{t("securityCategory")}</h4>
               <div className="preference-row">
                 <div className="preference-description">
@@ -377,5 +378,144 @@ export function Settings({
         </section>
       </div>
     </dialog>
+  );
+}
+
+function CacheSettings() {
+  const { t } = useI18n();
+  const preferences = useUserPreferences();
+  const days = preferences.preferences.cacheCleanupDays;
+  const [draft, setDraft] = useState(String(days || 7));
+  const [invalidDays, setInvalidDays] = useState(false);
+  const lastEnabled = useRef(days || 7);
+  const saving = useRef(false);
+  useEffect(() => {
+    if (days > 0) lastEnabled.current = days;
+    if (!preferences.pending) setDraft(String(days || lastEnabled.current));
+  }, [days, preferences.pending, preferences.failed]);
+  const saveDays = async (value: number) => {
+    if (saving.current) return;
+    saving.current = true;
+    try {
+      await preferences.update({ cacheCleanupDays: value });
+    } finally {
+      saving.current = false;
+    }
+  };
+  const [state, setState] = useState<"idle" | "pending" | "success" | "error">(
+    "idle",
+  );
+  const pending = useRef(false);
+  useEffect(() => {
+    if (state !== "success") return;
+    const timer = setTimeout(() => setState("idle"), 2500);
+    return () => clearTimeout(timer);
+  }, [state]);
+  return (
+    <>
+      <h4 className="settings-category">{t("storageCategory")}</h4>
+      <div className="preference-row">
+        <div className="preference-description">
+          <label id="cache-cleanup-label">{t("cacheCleanupSchedule")}</label>
+        </div>
+        <div className="cache-schedule-control">
+          <div className={`cache-days-field ${!days ? "is-disabled" : ""}`}>
+            <input
+              type="number"
+              min={1}
+              max={365}
+              step={1}
+              value={draft}
+              aria-label={t("cacheCleanupDays")}
+              aria-invalid={invalidDays}
+              aria-describedby={invalidDays ? "cache-cleanup-error" : undefined}
+              disabled={!days || !preferences.ready || preferences.pending}
+              onChange={(event) => {
+                setDraft(event.target.value);
+                setInvalidDays(false);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  event.currentTarget.blur();
+                }
+              }}
+              onBlur={() => {
+                const value = Number(draft);
+                if (
+                  !draft.trim() ||
+                  !Number.isInteger(value) ||
+                  value < 1 ||
+                  value > 365
+                ) {
+                  setInvalidDays(true);
+                  return;
+                }
+                if (value !== days) void saveDays(value);
+              }}
+            />
+            <span>{t("daysUnit")}</span>
+          </div>
+          <button
+            type="button"
+            className={`preference-switch ${days ? "is-on" : ""}`}
+            role="switch"
+            aria-labelledby="cache-cleanup-label"
+            aria-checked={days > 0}
+            title={!days ? t("cacheCleanupOff") : undefined}
+            disabled={!preferences.ready || preferences.pending}
+            onClick={() => {
+              setInvalidDays(false);
+              void saveDays(days ? 0 : lastEnabled.current);
+            }}
+          >
+            <span />
+          </button>
+        </div>
+      </div>
+
+      <div className="preference-row">
+        <div className="preference-description">
+          <label id="browser-cache-label">{t("browserCache")}</label>
+        </div>
+        <button
+          type="button"
+          className="small-button"
+          aria-describedby="browser-cache-label"
+          disabled={state === "pending"}
+          aria-busy={state === "pending"}
+          onClick={async () => {
+            if (pending.current) return;
+            pending.current = true;
+            setState("pending");
+            try {
+              await window.grimoireDesktop!.app!.clearCache!();
+              setState("success");
+            } catch {
+              setState("error");
+            } finally {
+              pending.current = false;
+            }
+          }}
+        >
+          {t(state === "pending" ? "clearingCache" : "clearCache")}
+        </button>
+      </div>
+      {invalidDays && (
+        <p className="error-banner" id="cache-cleanup-error" role="alert">
+          {t("cacheCleanupDaysInvalid")}
+        </p>
+      )}
+      {state === "success" && (
+        <p className="settings-cache-status" role="status">
+          {t("cacheCleared")}
+        </p>
+      )}
+      {state === "error" && (
+        <p className="error-banner" role="alert">
+          {t("clearCacheFailed")}
+        </p>
+      )}
+    </>
   );
 }
